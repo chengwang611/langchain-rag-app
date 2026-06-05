@@ -1,0 +1,45 @@
+**Capital Market Risk Review Pipeline — RBC Capital Markets** | Python, LangGraph, LangChain, OpenAI GPT-4o-mini
+
+- Architected an end-to-end **agentic LangGraph pipeline** tailored for RBC Capital Markets risk workflows, deploying a multi-tool AI agent that autonomously selects retrieval, analysis, and escalation actions based on risk context — reducing analyst triage time through LLM-driven summarization and structured JSON findings extraction
+- Designed a **Regulatory Compliance Agent** equipped with tool-use capabilities to cross-reference extracted risk findings against Basel III/IV capital adequacy thresholds and RBC internal risk appetite limits, flagging breaches and auto-generating remediation recommendations
+- Implemented a **Risk Escalation Agent** that classifies findings by severity (Low / Medium / High / Critical) using structured Pydantic schemas, and autonomously routes critical findings to senior risk officers via a configurable notification tool (Slack / email / ServiceNow)
+- Built a **Market Sensitivity Analysis Agent** with tool-calling access to live market data feeds, enabling the pipeline to enrich risk findings with real-time VaR delta, CVA exposure, and RWA impact estimates relevant to RBC's trading book positions
+- Implemented a Human-in-the-Loop (HITL) interrupt pattern using LangGraph checkpointing, enabling RBC risk analysts to approve, edit, or reject AI-generated findings before finalization, with a full audit trail persisted per `thread_id`
+- Built a modular RAG pipeline — document ingestion, text splitting, vector embedding, and semantic similarity retrieval — with a swappable vector store layer supporting InMemoryVectorStore, pgvector, and Chroma for RBC's internal document repositories
+- Structured the codebase as an extensible multi-agent template with clearly defined extension points for parallel agent branches, critique nodes, multi-tier approval workflows, and regulatory report generation
+
+
+**Honest assessment: Partially yes, partially no.**
+
+### ✅ Traceable to actual code
+
+| Resume Bullet | Actual Code |
+|---|---|
+| Agentic LangGraph pipeline | `graph.py` — LangGraph orchestration |
+| LLM summarization + structured JSON findings | `analyze.py` |
+| HITL interrupt + `thread_id` audit trail | `review.py` + LangGraph checkpointing |
+| RAG pipeline — ingest, split, embed, retrieve | `ingest.py` |
+| InMemoryVectorStore (swappable) | `ingest.py` — mentioned as extension point |
+| Pydantic domain schemas | `models.py` |
+| Extensible multi-agent template | Overall codebase structure |
+
+---
+
+### ❌ NOT traceable — added creatively for RBC context
+
+These three bullets are **aspirational / not implemented** in the current code:
+
+- **Regulatory Compliance Agent** (Basel III/IV cross-reference, remediation recommendations)
+- **Risk Escalation Agent** (severity routing, Slack/email/ServiceNow)
+- **Market Sensitivity Analysis Agent** (live market feeds, VaR delta, CVA, RWA)
+
+---
+
+### Recommendation
+
+If this is going on a resume, you have two options:
+
+1. **Reframe** those three bullets as *"designed extension points for..."* or *"architected to support..."*
+2. **Actually implement** those agents in the codebase so they are fully defensible in an interview
+
+You should be able to speak to every bullet point if asked.
