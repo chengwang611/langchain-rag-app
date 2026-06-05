@@ -19,6 +19,7 @@ openai>=1.40.0
 # ── Environment / config ─────────────────────────────────────────────────────
 python-dotenv>=1.0.0
 
+
 # ── Document loaders (existing rag_app) ──────────────────────────────────────
 langchain-chroma>=0.2.0
 pypdf>=5.0.0
