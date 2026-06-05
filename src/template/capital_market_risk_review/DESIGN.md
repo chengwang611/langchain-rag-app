@@ -1,7 +1,7 @@
 # Capital Market Risk Review — Design Document
 
 ## 1. Document Control
-- **Owner:** RBC Capital Markets — Technology & Risk Engineering
+- **Owner:** XXX Capital Markets — Technology & Risk Engineering
 - **Reviewers:** Market Risk, Counterparty Credit Risk, Model Risk, Regulatory Affairs
 - **Version:** 1.0.0
 - **Last Updated:** 2026-06-05
@@ -18,7 +18,7 @@ This document describes the design of the `capital_market_risk_review` LangGraph
 ### In Scope
 - Risk document ingestion, chunking, and semantic retrieval
 - LLM-driven draft summary and structured findings extraction
-- Regulatory compliance checking (Basel III/IV, RBC internal limits)
+- Regulatory compliance checking (Basel III/IV, XXX internal limits)
 - Quantitative market sensitivity enrichment (VaR, CVA, RWA)
 - Automated severity-based escalation (Slack, email, ServiceNow)
 - Human-in-the-Loop (HITL) review with full enriched context
@@ -43,7 +43,7 @@ This document describes the design of the `capital_market_risk_review` LangGraph
 | `models.py` | Domain schemas: `RiskFinding`, `ReviewState` (all state fields) |
 | `ingest.py` | Document loading, RecursiveCharacterTextSplitter, InMemoryVectorStore |
 | `analyze.py` | LLM draft summary + structured JSON findings extraction via `gpt-4o-mini` |
-| `compliance_agent.py` | **Regulatory Compliance Agent** — Basel III/IV threshold checks + RBC risk appetite + remediation recommendations |
+| `compliance_agent.py` | **Regulatory Compliance Agent** — Basel III/IV threshold checks + XXX risk appetite + remediation recommendations |
 | `market_agent.py` | **Market Sensitivity Analysis Agent** — VaR delta, CVA exposure, RWA capital impact |
 | `escalation_agent.py` | **Risk Escalation Agent** — severity classification, Slack/email/ServiceNow notifications |
 | `review.py` | HITL interrupt, decision routing (`approve/edit/reject`), finalization |
@@ -83,7 +83,7 @@ START
        └── retrieve             InMemoryVectorStore similarity search (top-8)
             └── analyze         gpt-4o-mini → draft_summary + findings_json
                  └── compliance_agent
-                 │    Tools: check_basel_threshold, get_rbc_risk_appetite,
+                 │    Tools: check_basel_threshold, get_xxx_risk_appetite,
                  │            generate_remediation_recommendation
                  │    Output: compliance_report
                       └── market_sensitivity_agent
@@ -129,7 +129,7 @@ The LLM autonomously decides which tools to call and in what order based on the 
 | Tool | Regulation Ref | Key Logic |
 |---|---|---|
 | `check_basel_threshold` | BCBS 352 / 325 / 238 / SR 11-7 | Compares observed metric to threshold dict; returns `BREACH/COMPLIANT` |
-| `get_rbc_risk_appetite` | RBC CM Internal Policies v3–v5 | Returns internal warning/breach limits + escalation owner |
+| `get_xxx_risk_appetite` | XXX CM Internal Policies v3–v5 | Returns internal warning/breach limits + escalation owner |
 | `generate_remediation_recommendation` | Above + OSFI guidelines | Generates owner, SLA, regulatory ref, escalation flag per finding |
 
 ---
@@ -148,10 +148,10 @@ The LLM autonomously decides which tools to call and in what order based on the 
 
 | Severity | Slack | Email | ServiceNow | Priority |
 |---|---|---|---|---|
-| `critical` | `#rbc-cm-critical-risk-alerts` | Chief Risk Officer | P1 - Critical | Immediate |
-| `high` | `#rbc-cm-risk-alerts` | Head of Risk (by category) | P2 - High | 3 business days |
-| `medium` | `#rbc-cm-risk-monitoring` | — | — | 5 business days |
-| `low` | `#rbc-cm-risk-log` | — | — | Log only |
+| `critical` | `#xxx-cm-critical-risk-alerts` | Chief Risk Officer | P1 - Critical | Immediate |
+| `high` | `#xxx-cm-risk-alerts` | Head of Risk (by category) | P2 - High | 3 business days |
+| `medium` | `#xxx-cm-risk-monitoring` | — | — | 5 business days |
+| `low` | `#xxx-cm-risk-log` | — | — | Log only |
 
 ---
 
@@ -208,7 +208,7 @@ client.chat_postMessage(channel=channel, text=message)
 ### 6.2 Real Email Integration (`escalation_agent.py`)
 ```python
 import smtplib
-with smtplib.SMTP_SSL("smtp.rbc.com", 465) as server:
+with smtplib.SMTP_SSL("smtp.xxx.com", 465) as server:
     server.login(user, password)
     server.sendmail(sender, recipient, msg.as_string())
 ```
@@ -291,7 +291,7 @@ cursor.execute(
 | Date | Decision |
 |---|---|
 | 2026-06-05 | Initial template — RAG pipeline + HITL documented |
-| 2026-06-05 | Added Regulatory Compliance Agent (`compliance_agent.py`) with Basel III/IV + RBC risk appetite tools |
+| 2026-06-05 | Added Regulatory Compliance Agent (`compliance_agent.py`) with Basel III/IV + XXX risk appetite tools |
 | 2026-06-05 | Added Market Sensitivity Analysis Agent (`market_agent.py`) with VaR / CVA / RWA tools |
 | 2026-06-05 | Added Risk Escalation Agent (`escalation_agent.py`) with Slack / email / ServiceNow routing |
 | 2026-06-05 | Sequential agent ordering chosen: compliance → market → escalation (each enriches the next) |

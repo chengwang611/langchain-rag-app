@@ -6,7 +6,7 @@ Pipeline:
     └── ingest                    (split documents into chunks)
          └── retrieve             (embed + retrieve top-k chunks)
               └── analyze         (LLM draft summary + structured findings)
-                   └── compliance_agent      (Basel III/IV + RBC risk appetite check)
+                   └── compliance_agent      (Basel III/IV + XXX risk appetite check)
                         └── market_sensitivity_agent  (VaR delta, CVA, RWA enrichment)
                              └── escalation_agent     (severity routing + notifications)
                                   └── human_review    (HITL pause/approve)

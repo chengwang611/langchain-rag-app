@@ -2,12 +2,12 @@
 market_agent.py — Market Sensitivity Analysis Agent.
 
 Enriches risk findings with quantitative market sensitivity metrics: VaR delta,
-CVA exposure, and RWA capital impact — contextualised to RBC Capital Markets
+CVA exposure, and RWA capital impact — contextualised to XXX Capital Markets
 trading book positions.
 
 EXTEND:
 - Connect to Bloomberg BLPAPI for live market data (rates, spreads, vols)
-- Integrate with RBC's internal risk engine (Murex / Calypso / OpenGamma)
+- Integrate with XXX's internal risk engine (Murex / Calypso / OpenGamma)
   for actual position-level sensitivities
 - Add Greeks: DV01, CS01, Vega, Delta by trading desk
 - Add scenario analysis: parallel shift, bear steepener, credit widening stress
@@ -34,7 +34,7 @@ llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
 
 # ── Simulated Market Data ─────────────────────────────────────────────────────
 # EXTEND: replace with live Bloomberg / Refinitiv / ICE Data calls
-# or RBC internal risk engine (Murex / Calypso) data feeds
+# or XXX internal risk engine (Murex / Calypso) data feeds
 SIMULATED_MARKET_DATA: dict[str, dict] = {
     "rates": {
         "10y_usd_swap_rate_pct": 4.52,
@@ -204,7 +204,7 @@ def calculate_rwa_impact(
                          standard weights for the exposure class.
     """
     # Basel III SA standard risk weights (%)
-    # EXTEND: add IRB (Internal Ratings-Based) weights from RBC internal models
+    # EXTEND: add IRB (Internal Ratings-Based) weights from XXX internal models
     sa_risk_weights = {
         "corporate": 100.0,
         "sovereign": 0.0,
@@ -245,7 +245,7 @@ _market_llm = llm.bind_tools(_MARKET_TOOLS)
 _tool_executor = {t.name: t for t in _MARKET_TOOLS}
 
 MARKET_SYSTEM_PROMPT = """
-You are the Market Sensitivity Analysis Agent for RBC Capital Markets.
+You are the Market Sensitivity Analysis Agent for XXX Capital Markets.
 
 Your role is to enrich each risk finding with quantitative market sensitivity metrics.
 
@@ -255,7 +255,7 @@ For findings in the JSON array:
 - Any finding with capital / RWA implications → call calculate_rwa_impact
 - FX / equity exposure → call calculate_var_delta with appropriate asset_class
 
-Use realistic RBC Capital Markets desk-size assumptions (e.g. $500M–$2B notional).
+Use realistic XXX Capital Markets desk-size assumptions (e.g. $500M–$2B notional).
 
 Produce a market sensitivity report with:
   MARKET SENSITIVITY SUMMARY:

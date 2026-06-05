@@ -2,13 +2,13 @@
 compliance_agent.py — Regulatory Compliance Agent.
 
 Cross-references extracted risk findings against Basel III/IV capital adequacy
-thresholds and RBC Capital Markets internal risk appetite limits. Flags breaches
+thresholds and XXX Capital Markets internal risk appetite limits. Flags breaches
 and auto-generates remediation recommendations using tool-augmented LLM.
 
 EXTEND:
 - Connect to live regulatory rulebook API (e.g. Bloomberg Regulatory data feed)
 - Add OSFI (Office of the Superintendent of Financial Institutions) rules for
-  Canadian-specific RBC regulatory compliance
+  Canadian-specific XXX regulatory compliance
 - Add FRTB SA vs IMA capital requirement comparison
 - Add CCAR / DFAST stress test threshold checks
 - Write compliance report to a GRC (Governance, Risk, Compliance) system
@@ -66,33 +66,33 @@ BASEL_THRESHOLDS: dict[str, dict] = {
     },
 }
 
-# RBC Capital Markets internal risk appetite limits (illustrative)
-# EXTEND: replace with live data from RBC's Global Risk Management (GRM) system
-RBC_RISK_APPETITE: dict[str, dict] = {
+# XXX Capital Markets internal risk appetite limits (illustrative)
+# EXTEND: replace with live data from XXX's Global Risk Management (GRM) system
+XXX_RISK_APPETITE: dict[str, dict] = {
     "Market": {
         "var_limit_utilization_warning_pct": 80.0,
         "var_limit_utilization_breach_pct": 95.0,
-        "escalation_owner": "Head of Market Risk, RBC Capital Markets",
-        "policy_ref": "RBC CM Market Risk Policy v4.2",
+        "escalation_owner": "Head of Market Risk, XXX Capital Markets",
+        "policy_ref": "XXX CM Market Risk Policy v4.2",
     },
     "Liquidity": {
         "liquidity_buffer_warning_days": 30,
         "liquidity_buffer_breach_days": 10,
         "model_refresh_sla_months": 6,
-        "escalation_owner": "Chief Liquidity Officer, RBC Capital Markets",
-        "policy_ref": "RBC CM Liquidity Risk Policy v3.1",
+        "escalation_owner": "Chief Liquidity Officer, XXX Capital Markets",
+        "policy_ref": "XXX CM Liquidity Risk Policy v3.1",
     },
     "Counterparty": {
         "margin_call_latency_warning_days": 2,
         "margin_call_latency_breach_days": 3,
-        "escalation_owner": "Head of Counterparty Credit Risk, RBC Capital Markets",
-        "policy_ref": "RBC CM Counterparty Risk Policy v5.0",
+        "escalation_owner": "Head of Counterparty Credit Risk, XXX Capital Markets",
+        "policy_ref": "XXX CM Counterparty Risk Policy v5.0",
     },
     "Model": {
         "max_model_age_months": 12,
         "regime_change_revalidation_trigger": True,
-        "escalation_owner": "Model Risk Committee, RBC Capital Markets",
-        "policy_ref": "RBC CM Model Risk Management Framework v2.3",
+        "escalation_owner": "Model Risk Committee, XXX Capital Markets",
+        "policy_ref": "XXX CM Model Risk Management Framework v2.3",
     },
 }
 
@@ -135,20 +135,20 @@ def check_basel_threshold(category: str, metric: str, observed_value: float) -> 
 
 
 @tool
-def get_rbc_risk_appetite(category: str) -> str:
+def get_xxx_risk_appetite(category: str) -> str:
     """
-    Retrieve RBC Capital Markets internal risk appetite limits, warning thresholds,
+    Retrieve XXX Capital Markets internal risk appetite limits, warning thresholds,
     and escalation owner for a given risk category.
 
     Args:
         category: Risk category (Market, Liquidity, Counterparty, Model, Regulatory, Other)
     """
-    appetite = RBC_RISK_APPETITE.get(category)
+    appetite = XXX_RISK_APPETITE.get(category)
     if appetite is None:
         return json.dumps({
             "status": "not_configured",
-            "message": f"No RBC risk appetite configured for category: {category}",
-            "available_categories": list(RBC_RISK_APPETITE.keys()),
+            "message": f"No XXX risk appetite configured for category: {category}",
+            "available_categories": list(XXX_RISK_APPETITE.keys()),
         })
     return json.dumps({
         "category": category,
@@ -179,15 +179,15 @@ def generate_remediation_recommendation(
         "low": "10 business days",
     }
     owner_map = {
-        "Market": "Market Risk Manager, RBC Capital Markets",
-        "Liquidity": "Treasury / Asset-Liability Management, RBC CM",
-        "Counterparty": "Counterparty Credit Risk team, RBC CM",
-        "Model": "Model Risk Management (MRM) team, RBC CM",
-        "Regulatory": "Regulatory Reporting team, RBC CM",
-        "Operational": "Operational Risk team, RBC CM",
+        "Market": "Market Risk Manager, XXX Capital Markets",
+        "Liquidity": "Treasury / Asset-Liability Management, XXX CM",
+        "Counterparty": "Counterparty Credit Risk team, XXX CM",
+        "Model": "Model Risk Management (MRM) team, XXX CM",
+        "Regulatory": "Regulatory Reporting team, XXX CM",
+        "Operational": "Operational Risk team, XXX CM",
     }
-    reg_ref = BASEL_THRESHOLDS.get(category, {}).get("regulation_ref", "RBC CM Internal Policy")
-    rbc_policy = RBC_RISK_APPETITE.get(category, {}).get("policy_ref", "RBC CM Risk Policy")
+    reg_ref = BASEL_THRESHOLDS.get(category, {}).get("regulation_ref", "XXX CM Internal Policy")
+    xxx_policy = XXX_RISK_APPETITE.get(category, {}).get("policy_ref", "XXX CM Risk Policy")
 
     return json.dumps({
         "category": category,
@@ -200,7 +200,7 @@ def generate_remediation_recommendation(
         "responsible_owner": owner_map.get(category, "Risk Management"),
         "due_date_sla": sla_map.get(severity.lower(), "10 business days"),
         "regulatory_reference": reg_ref,
-        "rbc_policy_reference": rbc_policy,
+        "xxx_policy_reference": xxx_policy,
         "escalation_required": severity.lower() in ("high", "critical"),
     })
 
@@ -208,29 +208,29 @@ def generate_remediation_recommendation(
 # ── Agent setup ────────────────────────────────────────────────────────────────
 _COMPLIANCE_TOOLS = [
     check_basel_threshold,
-    get_rbc_risk_appetite,
+    get_xxx_risk_appetite,
     generate_remediation_recommendation,
 ]
 _compliance_llm = llm.bind_tools(_COMPLIANCE_TOOLS)
 _tool_executor = {t.name: t for t in _COMPLIANCE_TOOLS}
 
 COMPLIANCE_SYSTEM_PROMPT = """
-You are the Regulatory Compliance Agent for RBC Capital Markets.
+You are the Regulatory Compliance Agent for XXX Capital Markets.
 
 Your role is to cross-reference the provided risk findings against:
 1. Basel III/IV regulatory thresholds — use check_basel_threshold for each applicable metric
-2. RBC internal risk appetite limits — use get_rbc_risk_appetite per category
+2. XXX internal risk appetite limits — use get_xxx_risk_appetite per category
 3. Remediation recommendations — use generate_remediation_recommendation for each high/critical breach
 
 Process ALL findings systematically. For each finding:
   - Call check_basel_threshold with the relevant metric
-  - Call get_rbc_risk_appetite for the category
+  - Call get_xxx_risk_appetite for the category
   - Call generate_remediation_recommendation if severity is high or critical
 
 Produce a structured compliance report with:
   COMPLIANCE STATUS: (BREACH / COMPLIANT / PARTIAL)
   - Per-finding breach flags with applicable Basel/OSFI regulation refs
-  - RBC internal limit comparison
+  - XXX internal limit comparison
   - Prioritised remediation actions with owners, SLAs, and policy references
 """.strip()
 
@@ -238,7 +238,7 @@ Produce a structured compliance report with:
 def compliance_agent_node(state: ReviewState) -> ReviewState:
     """
     Regulatory Compliance Agent: cross-references risk findings against Basel III/IV
-    thresholds and RBC Capital Markets risk appetite limits using tool-calling LLM.
+    thresholds and XXX Capital Markets risk appetite limits using tool-calling LLM.
 
     EXTEND:
     - Add OSFI B-2 / B-10 guideline checks specific to Canadian banks

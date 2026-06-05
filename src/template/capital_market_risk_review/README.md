@@ -1,4 +1,4 @@
-# Capital Market Risk Review — RBC Capital Markets Template
+# Capital Market Risk Review — XXX Capital Markets Template
 
 ## What this template does
 
@@ -7,7 +7,7 @@ End-to-end multi-agent LangGraph pipeline that:
 2. Splits + embeds them into a vector store
 3. Retrieves top-k most relevant chunks via semantic similarity search
 4. Runs LLM analysis to produce a draft executive summary + structured JSON findings
-5. **Regulatory Compliance Agent** — cross-references findings against Basel III/IV thresholds and RBC internal risk appetite limits, flags breaches, and generates remediation recommendations
+5. **Regulatory Compliance Agent** — cross-references findings against Basel III/IV thresholds and XXX internal risk appetite limits, flags breaches, and generates remediation recommendations
 6. **Market Sensitivity Analysis Agent** — enriches findings with quantitative metrics: VaR delta, CVA exposure, and RWA capital impact estimates
 7. **Risk Escalation Agent** — classifies findings by severity, routes critical/high findings to designated senior risk officers via Slack, email, and ServiceNow
 8. Pauses for Human-in-the-Loop (HITL) review with full enriched context
@@ -24,7 +24,7 @@ src/template/capital_market_risk_review/
 ├── models.py             ← domain schemas (RiskFinding, ReviewState)
 ├── ingest.py             ← document loading, splitting, and chunking
 ├── analyze.py            ← LLM risk analysis and findings extraction
-├── compliance_agent.py   ← Regulatory Compliance Agent (Basel III/IV + RBC limits)
+├── compliance_agent.py   ← Regulatory Compliance Agent (Basel III/IV + XXX limits)
 ├── market_agent.py       ← Market Sensitivity Agent (VaR, CVA, RWA)
 ├── escalation_agent.py   ← Risk Escalation Agent (Slack / email / ServiceNow)
 ├── review.py             ← HITL pause, routing, and finalization
@@ -55,7 +55,7 @@ START
   └── ingest                   split documents into overlapping chunks
        └── retrieve            embed + similarity search top-k chunks
             └── analyze        LLM draft summary + structured JSON findings
-                 └── compliance_agent        Basel III/IV breach check + RBC risk appetite
+                 └── compliance_agent        Basel III/IV breach check + XXX risk appetite
                       └── market_sensitivity_agent   VaR delta, CVA, RWA enrichment
                            └── escalation_agent      severity routing → Slack/email/ServiceNow
                                 └── human_review     HITL interrupt (pause here)
@@ -72,7 +72,7 @@ Uses three LangChain tools in an agentic loop:
 | Tool | Purpose |
 |---|---|
 | `check_basel_threshold` | Check observed metric against Basel III/IV threshold (BCBS 352, 325, 238, 295, SR 11-7) |
-| `get_rbc_risk_appetite` | Retrieve RBC Capital Markets internal limits and warning thresholds |
+| `get_xxx_risk_appetite` | Retrieve XXX Capital Markets internal limits and warning thresholds |
 | `generate_remediation_recommendation` | Produce structured remediation action with owner, SLA, and policy reference |
 
 ### 📊 Market Sensitivity Analysis Agent (`market_agent.py`)
@@ -88,9 +88,9 @@ Uses four LangChain tools for automated notification routing:
 | Tool | Purpose |
 |---|---|
 | `classify_findings_by_severity` | Count and bucket findings; determine if escalation is required |
-| `send_slack_notification` | Route to `#rbc-cm-critical-risk-alerts` / `#rbc-cm-risk-alerts` etc. |
+| `send_slack_notification` | Route to `#xxx-cm-critical-risk-alerts` / `#xxx-cm-risk-alerts` etc. |
 | `send_email_notification` | Email designated risk officer (Chief Market Risk Officer, Head of MRM, etc.) |
-| `create_servicenow_ticket` | Open incident ticket with priority, assignment group, and RBC policy reference |
+| `create_servicenow_ticket` | Open incident ticket with priority, assignment group, and XXX policy reference |
 
 ---
 

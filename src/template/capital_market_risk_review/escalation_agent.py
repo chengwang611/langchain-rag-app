@@ -2,7 +2,7 @@
 escalation_agent.py — Risk Escalation Agent.
 
 Classifies risk findings by severity, autonomously routes critical and high findings
-to designated RBC Capital Markets senior risk officers, and dispatches notifications
+to designated XXX Capital Markets senior risk officers, and dispatches notifications
 via Slack, email, and ServiceNow incident tickets.
 
 EXTEND:
@@ -32,32 +32,32 @@ from src.template.capital_market_risk_review.models import ReviewState
 llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
 
 
-# ── RBC Escalation Directory ──────────────────────────────────────────────────
-# EXTEND: load from RBC Active Directory / HR system via Microsoft Graph API
-RBC_ESCALATION_DIRECTORY: dict[str, dict[str, str]] = {
+# ── XXX Escalation Directory ──────────────────────────────────────────────────
+# EXTEND: load from XXX Active Directory / HR system via Microsoft Graph API
+XXX_ESCALATION_DIRECTORY: dict[str, dict[str, str]] = {
     "critical": {
-        "Market":      "Chief Market Risk Officer, RBC Capital Markets",
-        "Liquidity":   "Chief Liquidity Officer, RBC Capital Markets",
-        "Counterparty":"Head of Counterparty Credit Risk, RBC Capital Markets",
-        "Model":       "Chair, Model Risk Committee, RBC Capital Markets",
-        "Regulatory":  "Chief Compliance Officer, RBC Capital Markets",
-        "Operational": "Chief Operating Risk Officer, RBC Capital Markets",
+        "Market":      "Chief Market Risk Officer, XXX Capital Markets",
+        "Liquidity":   "Chief Liquidity Officer, XXX Capital Markets",
+        "Counterparty":"Head of Counterparty Credit Risk, XXX Capital Markets",
+        "Model":       "Chair, Model Risk Committee, XXX Capital Markets",
+        "Regulatory":  "Chief Compliance Officer, XXX Capital Markets",
+        "Operational": "Chief Operating Risk Officer, XXX Capital Markets",
     },
     "high": {
-        "Market":      "Head of Market Risk, RBC Capital Markets",
-        "Liquidity":   "Treasury Risk Manager, RBC Capital Markets",
-        "Counterparty":"Senior Counterparty Risk Manager, RBC Capital Markets",
-        "Model":       "Head of Model Risk Management, RBC Capital Markets",
-        "Regulatory":  "Head of Regulatory Affairs, RBC Capital Markets",
-        "Operational": "Head of Operational Risk, RBC Capital Markets",
+        "Market":      "Head of Market Risk, XXX Capital Markets",
+        "Liquidity":   "Treasury Risk Manager, XXX Capital Markets",
+        "Counterparty":"Senior Counterparty Risk Manager, XXX Capital Markets",
+        "Model":       "Head of Model Risk Management, XXX Capital Markets",
+        "Regulatory":  "Head of Regulatory Affairs, XXX Capital Markets",
+        "Operational": "Head of Operational Risk, XXX Capital Markets",
     },
 }
 
 SLACK_CHANNELS: dict[str, str] = {
-    "critical": "#rbc-cm-critical-risk-alerts",
-    "high":     "#rbc-cm-risk-alerts",
-    "medium":   "#rbc-cm-risk-monitoring",
-    "low":      "#rbc-cm-risk-log",
+    "critical": "#xxx-cm-critical-risk-alerts",
+    "high":     "#xxx-cm-risk-alerts",
+    "medium":   "#xxx-cm-risk-monitoring",
+    "low":      "#xxx-cm-risk-log",
 }
 
 SERVICENOW_PRIORITY_MAP: dict[str, str] = {
@@ -114,7 +114,7 @@ def classify_findings_by_severity(findings_json: str) -> str:
 @tool
 def send_slack_notification(severity: str, category: str, message: str) -> str:
     """
-    Send a risk alert to the appropriate RBC Capital Markets Slack channel.
+    Send a risk alert to the appropriate XXX Capital Markets Slack channel.
     Channel and recipient role are determined automatically by severity and category.
 
     Args:
@@ -122,11 +122,11 @@ def send_slack_notification(severity: str, category: str, message: str) -> str:
         category: Risk category (Market, Liquidity, Counterparty, Model, etc.)
         message: Alert message body (keep under 500 characters for Slack readability)
     """
-    channel = SLACK_CHANNELS.get(severity.lower(), "#rbc-cm-risk-log")
+    channel = SLACK_CHANNELS.get(severity.lower(), "#xxx-cm-risk-log")
     recipient = (
-        RBC_ESCALATION_DIRECTORY
+        XXX_ESCALATION_DIRECTORY
         .get(severity.lower(), {})
-        .get(category, "Risk Management Team, RBC CM")
+        .get(category, "Risk Management Team, XXX CM")
     )
 
     # EXTEND: replace with real Slack API call
@@ -156,8 +156,8 @@ def send_email_notification(
     body: str,
 ) -> str:
     """
-    Send a risk escalation email to the designated RBC Capital Markets risk officer.
-    Recipient is resolved from the RBC escalation directory by severity and category.
+    Send a risk escalation email to the designated XXX Capital Markets risk officer.
+    Recipient is resolved from the XXX escalation directory by severity and category.
 
     Args:
         severity: Severity level (critical, high, medium, low)
@@ -166,15 +166,15 @@ def send_email_notification(
         body: Email body (full finding details)
     """
     recipient = (
-        RBC_ESCALATION_DIRECTORY
+        XXX_ESCALATION_DIRECTORY
         .get(severity.lower(), {})
-        .get(category, "risk.management@rbc.com")
+        .get(category, "risk.management@xxx.com")
     )
 
     # EXTEND: replace with real SMTP / SendGrid call
     # import smtplib, ssl
-    # with smtplib.SMTP_SSL("smtp.rbc.com", 465, ...) as server:
-    #     server.sendmail("risk-pipeline@rbc.com", recipient, msg.as_string())
+    # with smtplib.SMTP_SSL("smtp.xxx.com", 465, ...) as server:
+    #     server.sendmail("risk-pipeline@xxx.com", recipient, msg.as_string())
 
     record = {
         "to": recipient,
@@ -209,7 +209,7 @@ def create_servicenow_ticket(
                               regulatory references, and recommended actions
     """
     priority = SERVICENOW_PRIORITY_MAP.get(severity.lower(), "3 - Moderate")
-    assignment_group = f"RBC CM {category} Risk Management"
+    assignment_group = f"XXX CM {category} Risk Management"
 
     # Deterministic-looking ticket ID based on description hash
     ticket_id = f"INC{abs(hash(short_description)) % 10_000_000:07d}"
@@ -234,7 +234,7 @@ def create_servicenow_ticket(
         "severity": severity,
         "created_at_utc": datetime.now(timezone.utc).isoformat(),
         "status": "CREATED (simulated — wire ServiceNow REST API for production)",
-        "servicenow_url": f"https://rbc.service-now.com/incident.do?sys_id={ticket_id}",
+        "servicenow_url": f"https://xxx.service-now.com/incident.do?sys_id={ticket_id}",
     }
     print(f"[SERVICENOW] Ticket {ticket_id} created: {short_description[:60]}")
     return json.dumps(record)
@@ -251,7 +251,7 @@ _escalation_llm = llm.bind_tools(_ESCALATION_TOOLS)
 _tool_executor = {t.name: t for t in _ESCALATION_TOOLS}
 
 ESCALATION_SYSTEM_PROMPT = """
-You are the Risk Escalation Agent for RBC Capital Markets.
+You are the Risk Escalation Agent for XXX Capital Markets.
 
 Your escalation protocol:
 1. ALWAYS start by calling classify_findings_by_severity to understand the severity breakdown.
@@ -278,7 +278,7 @@ After completing all notifications, produce a concise ESCALATION LOG summarising
 def escalation_agent_node(state: ReviewState) -> ReviewState:
     """
     Risk Escalation Agent: classifies findings by severity and autonomously routes
-    critical/high findings to senior RBC Capital Markets risk officers via Slack,
+    critical/high findings to senior XXX Capital Markets risk officers via Slack,
     email, and ServiceNow using tool-augmented LLM.
 
     EXTEND:

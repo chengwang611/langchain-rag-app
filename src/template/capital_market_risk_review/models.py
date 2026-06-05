@@ -80,7 +80,7 @@ class ReviewState(TypedDict):
     findings_json: str                         # JSON array of RiskFindings
 
     # ── Agent outputs ────────────────────────────────────────────────────────
-    # Populated by compliance_agent_node (Basel III/IV + RBC risk appetite check)
+    # Populated by compliance_agent_node (Basel III/IV + XXX risk appetite check)
     compliance_report: str | None
 
     # Populated by market_sensitivity_agent_node (VaR delta, CVA, RWA)
