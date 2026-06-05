@@ -8,3 +8,4 @@
 - Built a modular **RAG pipeline** (`ingest.py`) with `RecursiveCharacterTextSplitter` (1200/200 overlap), `OpenAIEmbeddings` (`text-embedding-3-small`), and `InMemoryVectorStore` similarity search (top-8), with documented swap points for pgvector, Chroma, and Azure AI Search
 - Designed a typed **shared state contract** (`ReviewState` TypedDict in `models.py`) with 14 fields flowing through all 8 pipeline nodes, enforcing clean interfaces between RAG, agent, HITL, and finalization stages
 - Structured the codebase as an extensible multi-agent template (`graph.py`) with clearly defined `# EXTEND` hooks for parallel agent branches, live Bloomberg/Murex market data, real Slack/SMTP/ServiceNow API integration, durable PostgreSQL checkpointing, and regulatory audit logging
+
