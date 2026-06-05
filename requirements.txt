@@ -1,0 +1,39 @@
+# Capital Market Risk Review — Python dependencies
+# Install with: pip install -r requirements.txt
+#
+# Python >= 3.10 required
+
+# ── LangChain core ────────────────────────────────────────────────────────────
+langchain>=0.3.0
+langchain-core>=0.3.0
+langchain-community>=0.3.0
+langchain-openai>=0.2.0
+langchain-text-splitters>=0.3.0
+
+# ── LangGraph (agentic pipeline + HITL checkpointing) ────────────────────────
+langgraph>=0.2.0
+
+# ── OpenAI (LLM + embeddings) ────────────────────────────────────────────────
+openai>=1.40.0
+
+# ── Environment / config ─────────────────────────────────────────────────────
+python-dotenv>=1.0.0
+
+# ── Document loaders (existing rag_app) ──────────────────────────────────────
+langchain-chroma>=0.2.0
+pypdf>=5.0.0
+
+# ── Production vector store (EXTEND: uncomment when replacing InMemoryVectorStore)
+# langchain-postgres>=0.0.12
+# psycopg[binary]>=3.1.0
+
+# ── Production notification integrations (EXTEND: uncomment when wiring agents)
+# slack-sdk>=3.27.0
+# sendgrid>=6.11.0
+
+# ── Workflow scheduling (EXTEND: uncomment for Airflow-based ingestion)
+# apache-airflow>=2.9.0
+
+# ── Dev / lint ────────────────────────────────────────────────────────────────
+# ruff>=0.8.0
+
