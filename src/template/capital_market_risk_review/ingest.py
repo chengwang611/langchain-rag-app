@@ -12,6 +12,7 @@ INGESTION PIPELINE  (runs hourly / daily as a batch job)
   - Embeds and writes chunks to the persistent vector store
   - Supports incremental runs: new reports are appended, not re-embedded
 
+
 REVIEW PIPELINE  (runs at query / review time)
   retrieve_node  →  analyze_node  →  ...
 
