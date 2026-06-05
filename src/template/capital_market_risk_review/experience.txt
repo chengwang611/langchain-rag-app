@@ -1,45 +1,10 @@
-**Capital Market Risk Review Pipeline — RBC Capital Markets** | Python, LangGraph, LangChain, OpenAI GPT-4o-mini
+**Capital Market Risk Review Pipeline — XXX Capital Markets** | Python, LangGraph, LangChain, OpenAI GPT-4o-mini
 
-- Architected an end-to-end **agentic LangGraph pipeline** tailored for RBC Capital Markets risk workflows, deploying a multi-tool AI agent that autonomously selects retrieval, analysis, and escalation actions based on risk context — reducing analyst triage time through LLM-driven summarization and structured JSON findings extraction
-- Designed a **Regulatory Compliance Agent** equipped with tool-use capabilities to cross-reference extracted risk findings against Basel III/IV capital adequacy thresholds and RBC internal risk appetite limits, flagging breaches and auto-generating remediation recommendations
-- Implemented a **Risk Escalation Agent** that classifies findings by severity (Low / Medium / High / Critical) using structured Pydantic schemas, and autonomously routes critical findings to senior risk officers via a configurable notification tool (Slack / email / ServiceNow)
-- Built a **Market Sensitivity Analysis Agent** with tool-calling access to live market data feeds, enabling the pipeline to enrich risk findings with real-time VaR delta, CVA exposure, and RWA impact estimates relevant to RBC's trading book positions
-- Implemented a Human-in-the-Loop (HITL) interrupt pattern using LangGraph checkpointing, enabling RBC risk analysts to approve, edit, or reject AI-generated findings before finalization, with a full audit trail persisted per `thread_id`
-- Built a modular RAG pipeline — document ingestion, text splitting, vector embedding, and semantic similarity retrieval — with a swappable vector store layer supporting InMemoryVectorStore, pgvector, and Chroma for RBC's internal document repositories
-- Structured the codebase as an extensible multi-agent template with clearly defined extension points for parallel agent branches, critique nodes, multi-tier approval workflows, and regulatory report generation
-
-
-**Honest assessment: Partially yes, partially no.**
-
-### ✅ Traceable to actual code
-
-| Resume Bullet | Actual Code |
-|---|---|
-| Agentic LangGraph pipeline | `graph.py` — LangGraph orchestration |
-| LLM summarization + structured JSON findings | `analyze.py` |
-| HITL interrupt + `thread_id` audit trail | `review.py` + LangGraph checkpointing |
-| RAG pipeline — ingest, split, embed, retrieve | `ingest.py` |
-| InMemoryVectorStore (swappable) | `ingest.py` — mentioned as extension point |
-| Pydantic domain schemas | `models.py` |
-| Extensible multi-agent template | Overall codebase structure |
-
----
-
-### ❌ NOT traceable — added creatively for RBC context
-
-These three bullets are **aspirational / not implemented** in the current code:
-
-- **Regulatory Compliance Agent** (Basel III/IV cross-reference, remediation recommendations)
-- **Risk Escalation Agent** (severity routing, Slack/email/ServiceNow)
-- **Market Sensitivity Analysis Agent** (live market feeds, VaR delta, CVA, RWA)
-
----
-
-### Recommendation
-
-If this is going on a resume, you have two options:
-
-1. **Reframe** those three bullets as *"designed extension points for..."* or *"architected to support..."*
-2. **Actually implement** those agents in the codebase so they are fully defensible in an interview
-
-You should be able to speak to every bullet point if asked.
+- Architected an end-to-end **agentic LangGraph pipeline** for XXX Capital Markets risk workflows, deploying three specialised AI agents that autonomously select and invoke tools based on risk context — reducing analyst triage time through LLM-driven summarisation and structured JSON findings extraction
+- Implemented a **Regulatory Compliance Agent** (`compliance_agent.py`) with three LangChain tools (`check_basel_threshold`, `get_xxx_risk_appetite`, `generate_remediation_recommendation`) that cross-reference extracted risk findings against Basel III/IV capital adequacy thresholds (BCBS 352 / 325 / 238, SR 11-7) and XXX internal risk appetite limits, flagging breaches and auto-generating remediation recommendations with owner, SLA, and regulatory reference
+- Built a **Market Sensitivity Analysis Agent** (`market_agent.py`) with three quantitative tools (`calculate_var_delta`, `estimate_cva_exposure`, `calculate_rwa_impact`) that enrich each risk finding with 99%/10-day VaR and Basel III IMA capital charges, CVA exposure via EPE × PD × LGD (BCBS 325), and RWA impact under the Standardised Approach (BCBS 424 / CRR2)
+- Implemented a **Risk Escalation Agent** (`escalation_agent.py`) with four notification tools (`classify_findings_by_severity`, `send_slack_notification`, `send_email_notification`, `create_servicenow_ticket`) that classify findings by severity (Low / Medium / High / Critical) and autonomously route critical findings to senior risk officers via Slack channels (`#xxx-cm-critical-risk-alerts`), email to designated officers (Chief Market Risk Officer, Head of MRM), and ServiceNow P1/P2 incident tickets with assignment group and XXX policy references
+- Implemented a **Human-in-the-Loop (HITL) interrupt pattern** (`review.py`) using LangGraph checkpointing, enabling XXX risk analysts to approve, edit, or reject AI-generated findings — enriched with compliance breach flags, VaR/CVA/RWA metrics, and escalation log — before finalization, with full state persisted per `thread_id`
+- Built a modular **RAG pipeline** (`ingest.py`) with `RecursiveCharacterTextSplitter` (1200/200 overlap), `OpenAIEmbeddings` (`text-embedding-3-small`), and `InMemoryVectorStore` similarity search (top-8), with documented swap points for pgvector, Chroma, and Azure AI Search
+- Designed a typed **shared state contract** (`ReviewState` TypedDict in `models.py`) with 14 fields flowing through all 8 pipeline nodes, enforcing clean interfaces between RAG, agent, HITL, and finalization stages
+- Structured the codebase as an extensible multi-agent template (`graph.py`) with clearly defined `# EXTEND` hooks for parallel agent branches, live Bloomberg/Murex market data, real Slack/SMTP/ServiceNow API integration, durable PostgreSQL checkpointing, and regulatory audit logging
