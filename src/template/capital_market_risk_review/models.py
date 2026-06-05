@@ -79,6 +79,19 @@ class ReviewState(TypedDict):
     draft_summary: str                         # LLM draft executive summary
     findings_json: str                         # JSON array of RiskFindings
 
+    # ── Agent outputs ────────────────────────────────────────────────────────
+    # Populated by compliance_agent_node (Basel III/IV + RBC risk appetite check)
+    compliance_report: str | None
+
+    # Populated by market_sensitivity_agent_node (VaR delta, CVA, RWA)
+    market_sensitivity_report: str | None
+
+    # Populated by escalation_agent_node (Slack / email / ServiceNow actions taken)
+    escalation_log: list[str]
+
+    # True when critical or high findings triggered notifications
+    escalation_required: bool
+
     # ── HITL fields ──────────────────────────────────────────────────────────
     human_decision: HumanDecision              # approve / edit / reject
     edited_summary: str | None                 # human-edited summary if decision==edit

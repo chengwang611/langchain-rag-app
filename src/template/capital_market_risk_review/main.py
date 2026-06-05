@@ -64,6 +64,12 @@ def main():
         "retrieved": [],
         "draft_summary": "",
         "findings_json": "[]",
+        # ── New agent fields ──────────────────────────────────────────────
+        "compliance_report": None,
+        "market_sensitivity_report": None,
+        "escalation_log": [],
+        "escalation_required": False,
+        # ── HITL fields ───────────────────────────────────────────────────
         "human_decision": None,
         "edited_summary": None,
         "final_summary": None,
@@ -87,6 +93,23 @@ def main():
         print(json.dumps(findings, indent=2))
     except json.JSONDecodeError:
         print(paused_state.get("findings_json", "[]"))
+
+    print("\n" + "=" * 60)
+    print("AGENT: Regulatory Compliance Report")
+    print("=" * 60)
+    print(paused_state.get("compliance_report", "No compliance report generated."))
+
+    print("\n" + "=" * 60)
+    print("AGENT: Market Sensitivity Report")
+    print("=" * 60)
+    print(paused_state.get("market_sensitivity_report", "No market sensitivity report generated."))
+
+    print("\n" + "=" * 60)
+    print("AGENT: Escalation Log")
+    print("=" * 60)
+    escalation_log = paused_state.get("escalation_log", [])
+    print("\n".join(escalation_log) if escalation_log else "No escalations triggered.")
+    print(f"\nEscalation required: {paused_state.get('escalation_required', False)}")
 
     # ── Step 2: Simulate human decision ──────────────────────────────────────
     # EXTEND: replace with actual UI input (web form, Slack, CLI prompt)
