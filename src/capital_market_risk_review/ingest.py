@@ -37,7 +37,7 @@ from langchain_core.vectorstores import InMemoryVectorStore
 from langchain_openai import OpenAIEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
-from src.template.capital_market_risk_review.models import ReviewState
+from src.capital_market_risk_review.models import ReviewState
 
 
 # ── Splitter config ──────────────────────────────────────────────────────────

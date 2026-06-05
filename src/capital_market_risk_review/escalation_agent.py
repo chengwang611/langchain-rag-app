@@ -25,7 +25,7 @@ from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from langchain_core.tools import tool
 from langchain_openai import ChatOpenAI
 
-from src.template.capital_market_risk_review.models import ReviewState
+from src.capital_market_risk_review.models import ReviewState
 
 
 # ── LLM config ────────────────────────────────────────────────────────────────

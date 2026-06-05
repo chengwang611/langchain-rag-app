@@ -15,7 +15,7 @@ from __future__ import annotations
 from langchain_core.messages import AIMessage, HumanMessage
 from langchain_openai import ChatOpenAI
 
-from src.template.capital_market_risk_review.models import ReviewState
+from src.capital_market_risk_review.models import ReviewState
 
 
 # ── LLM config ───────────────────────────────────────────────────────────────

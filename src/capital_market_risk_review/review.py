@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from langgraph.types import interrupt
 
-from src.template.capital_market_risk_review.models import ReviewState
+from src.capital_market_risk_review.models import ReviewState
 
 
 def human_review_node(state: ReviewState) -> ReviewState:

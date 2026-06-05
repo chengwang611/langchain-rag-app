@@ -2,7 +2,7 @@
 main.py — Entry point demonstrating the two-pipeline design.
 
 Usage:
-    python -m src.template.capital_market_risk_review.main
+    python -m src.capital_market_risk_review.main
 
 TWO PIPELINES:
   Pipeline 1 — Ingestion (runs hourly / daily as a batch job)
@@ -28,11 +28,11 @@ import json
 
 from dotenv import load_dotenv
 
-from src.template.capital_market_risk_review.graph import (
+from src.capital_market_risk_review.graph import (
     build_ingestion_graph,
     build_review_graph,
 )
-from src.template.capital_market_risk_review.models import ReviewState
+from src.capital_market_risk_review.models import ReviewState
 
 load_dotenv()
 
