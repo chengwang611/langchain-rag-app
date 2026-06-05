@@ -68,10 +68,18 @@ class ReviewState(TypedDict):
     - Add `escalation_level: int` for multi-tier HITL routing
     """
 
+    # ── Fund identification ──────────────────────────────────────────────────
+    # fund_id scopes all ingestion and retrieval to a single fund.
+    # Every chunk is tagged with fund_id at ingest time so that retrieval
+    # never mixes documents across funds.
+    fund_id: str                               # e.g. "FUND-001", "APAC-HY-003"
+    report_date: str | None                    # YYYY-MM-DD date of the risk report
+    source_files: list[str]                    # file paths / S3 keys ingested this run
+
     # ── Input ────────────────────────────────────────────────────────────────
     messages: Annotated[list, add_messages]    # conversation history
-    raw_docs: list[str]                        # raw document texts
-    query: str                                 # retrieval query
+    raw_docs: list[str]                        # raw document texts (ingestion pipeline)
+    query: str                                 # retrieval query    (review pipeline)
 
     # ── Intermediate pipeline state ──────────────────────────────────────────
     chunks: list                               # split document chunks

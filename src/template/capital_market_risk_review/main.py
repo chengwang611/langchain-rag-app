@@ -1,86 +1,142 @@
 """
-main.py — Entry point for running the capital market risk review pipeline.
+main.py — Entry point demonstrating the two-pipeline design.
 
 Usage:
     python -m src.template.capital_market_risk_review.main
 
+TWO PIPELINES:
+  Pipeline 1 — Ingestion (runs hourly / daily as a batch job)
+    build_ingestion_graph()  →  ingest_node  →  embed_and_persist_node
+    - Call once per fund per reporting cycle
+    - Chunks are tagged with fund_id and accumulated in the persistent store
+
+  Pipeline 2 — Review (runs at query / review time)
+    build_review_graph()  →  retrieve_node (filtered by fund_id)  →  analyze  →
+    compliance_agent  →  market_sensitivity_agent  →  escalation_agent  →
+    human_review (HITL pause)  →  finalize
+
 EXTEND:
-- Accept document file paths as CLI arguments (argparse)
-- Accept query as CLI argument
-- Add batch mode: loop over a folder of documents
-- Add output mode: write final_summary to file or database
+- Accept fund_id and report file paths as CLI arguments (argparse)
+- Schedule ingestion as an hourly cron job or Airflow DAG
+- Replace raw_docs with PyPDFLoader / AzureBlobLoader for real files
+- Write final_summary + findings to a risk management database
 """
 
 from __future__ import annotations
 
 import json
-import os
 
 from dotenv import load_dotenv
 
-from src.template.capital_market_risk_review.graph import build_graph
+from src.template.capital_market_risk_review.graph import (
+    build_ingestion_graph,
+    build_review_graph,
+)
 from src.template.capital_market_risk_review.models import ReviewState
 
 load_dotenv()
 
 
-# ── Sample documents ─────────────────────────────────────────────────────────
-# EXTEND: replace with real document loaders
-#   from langchain_community.document_loaders import PyPDFLoader
-#   docs = PyPDFLoader("path/to/risk_report.pdf").load()
-SAMPLE_DOCS = [
-    "Desk VaR limit utilization increased from 72% to 96% over 3 days "
-    "driven by elevated rates volatility. Breach notification has not been sent.",
-
-    "Stress scenario analysis shows concentrated exposure in long-end swaps. "
-    "Liquidity assumptions used in the model are 6 months stale and require refresh.",
-
-    "Counterparty CSA thresholds were amended on two bilateral agreements. "
-    "Margin call processing latency increased to T+3, above the T+1 SLA.",
-
-    "Model risk: the VaR model for FX options has not been re-validated "
-    "since Q3 last year. A significant regime change occurred in Q1 this year.",
-]
-
-# EXTEND: make query configurable via CLI or config file
-QUERY = "Summarize material market risk issues, control gaps, and limit breaches."
-
-
-def main():
-    # Build graph with in-memory checkpointer
-    # EXTEND: use SqliteSaver("checkpoints.db") for durable checkpoints
-    graph = build_graph()
-
-    # Thread ID ties all invocations together for checkpoint resume
-    # EXTEND: generate unique thread_id per review case (e.g. uuid4)
-    config = {"configurable": {"thread_id": "risk-review-demo-1"}}
-
-    # Initial state
-    initial_state: ReviewState = {
+# ── Shared state defaults ─────────────────────────────────────────────────────
+# Fields not used by a given pipeline are set to safe empty defaults.
+def _empty_state() -> ReviewState:
+    return {
         "messages": [],
-        "raw_docs": SAMPLE_DOCS,
-        "query": QUERY,
+        "fund_id": "",
+        "report_date": None,
+        "source_files": [],
+        "raw_docs": [],
+        "query": "",
         "chunks": [],
         "retrieved": [],
         "draft_summary": "",
         "findings_json": "[]",
-        # ── New agent fields ──────────────────────────────────────────────
         "compliance_report": None,
         "market_sensitivity_report": None,
         "escalation_log": [],
         "escalation_required": False,
-        # ── HITL fields ───────────────────────────────────────────────────
         "human_decision": None,
         "edited_summary": None,
         "final_summary": None,
     }
 
-    # ── Step 1: Run until HITL interrupt ─────────────────────────────────────
+
+# ── Sample fund reports ───────────────────────────────────────────────────────
+# EXTEND: replace with real PyPDFLoader / AzureBlobLoader calls
+FUND_REPORTS: dict[str, list[str]] = {
+    "FUND-001": [
+        "Desk VaR limit utilization increased from 72% to 96% over 3 days "
+        "driven by elevated rates volatility. Breach notification has not been sent.",
+        "Stress scenario analysis shows concentrated exposure in long-end swaps. "
+        "Liquidity assumptions used in the model are 6 months stale and require refresh.",
+    ],
+    "FUND-002": [
+        "Counterparty CSA thresholds were amended on two bilateral agreements. "
+        "Margin call processing latency increased to T+3, above the T+1 SLA.",
+        "Model risk: the VaR model for FX options has not been re-validated "
+        "since Q3 last year. A significant regime change occurred in Q1 this year.",
+    ],
+    "FUND-003": [
+        "Equity desk breached its DV01 limit by 12% on three consecutive days. "
+        "Risk manager was notified but no formal escalation was recorded.",
+        "Operational risk: a settlement failure rate of 3.2% was observed this week, "
+        "exceeding the internal threshold of 1.5%. Root cause is under investigation.",
+    ],
+}
+
+REVIEW_FUND_ID = "FUND-001"
+QUERY = "Summarize material market risk issues, control gaps, and limit breaches."
+
+
+def run_ingestion_pipeline(ingestion_graph, fund_id: str, docs: list[str], report_date: str):
+    """Ingest a batch of documents for a single fund."""
+    print(f"\n  Ingesting fund_id={fund_id} | date={report_date} | {len(docs)} documents")
+    state = {
+        **_empty_state(),
+        "fund_id": fund_id,
+        "report_date": report_date,
+        "source_files": [f"{fund_id}_risk_report_{report_date}.pdf"],
+        "raw_docs": docs,
+    }
+    config = {"configurable": {"thread_id": f"ingest-{fund_id}-{report_date}"}}
+    ingestion_graph.invoke(state, config=config)
+
+
+def main():
+    # ── PIPELINE 1: Batch Ingestion ───────────────────────────────────────────
+    # Simulates two ingestion runs (e.g. yesterday's and today's reports)
+    # Real usage: schedule as hourly cron / Airflow DAG per fund
     print("=" * 60)
-    print("STEP 1: Running pipeline until human review pause...")
+    print("PIPELINE 1: Batch ingestion (hourly / daily)")
     print("=" * 60)
 
-    paused_state = graph.invoke(initial_state, config=config)
+    ingestion_graph = build_ingestion_graph()
+
+    for run_date in ["2026-06-04", "2026-06-05"]:   # simulate two daily runs
+        print(f"\nIngestion run: {run_date}")
+        for fund_id, docs in FUND_REPORTS.items():
+            run_ingestion_pipeline(ingestion_graph, fund_id, docs, run_date)
+
+    # ── PIPELINE 2: Review (fund_id scoped) ───────────────────────────────────
+    print("\n" + "=" * 60)
+    print(f"PIPELINE 2: Review for fund_id={REVIEW_FUND_ID}")
+    print("=" * 60)
+
+    review_graph = build_review_graph()
+
+    # Each review case gets a unique thread_id for HITL checkpoint tracking
+    # EXTEND: generate uuid4 per review case
+    config = {"configurable": {"thread_id": f"review-{REVIEW_FUND_ID}-2026-06-05"}}
+
+    review_state: ReviewState = {
+        **_empty_state(),
+        "fund_id": REVIEW_FUND_ID,
+        "query": QUERY,
+    }
+
+    # ── Step 1: Run until HITL interrupt ─────────────────────────────────────
+    print(f"\nSTEP 1: Running review pipeline until human review pause...")
+    paused_state = review_graph.invoke(review_state, config=config)
 
     print("\nDraft Summary:")
     print("-" * 40)
@@ -117,16 +173,10 @@ def main():
     print("STEP 2: Human reviewer approves...")
     print("=" * 60)
 
-    # Options:
-    #   {"human_decision": "approve"}
-    #   {"human_decision": "edit", "edited_summary": "Custom text..."}
-    #   {"human_decision": "reject"}
-    human_input = {
-        "human_decision": "approve",
-        "edited_summary": None,
-    }
-
-    final_state = graph.invoke(human_input, config=config)
+    final_state = review_graph.invoke(
+        {"human_decision": "approve", "edited_summary": None},
+        config=config,
+    )
 
     print("\nFinal Summary:")
     print("-" * 40)

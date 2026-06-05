@@ -2,17 +2,29 @@
 
 ## What this template does
 
-End-to-end multi-agent LangGraph pipeline that:
-1. Ingests raw capital market risk documents
-2. Splits + embeds them into a vector store
-3. Retrieves top-k most relevant chunks via semantic similarity search
-4. Runs LLM analysis to produce a draft executive summary + structured JSON findings
-5. **Regulatory Compliance Agent** — cross-references findings against Basel III/IV thresholds and XXX internal risk appetite limits, flags breaches, and generates remediation recommendations
-6. **Market Sensitivity Analysis Agent** — enriches findings with quantitative metrics: VaR delta, CVA exposure, and RWA capital impact estimates
-7. **Risk Escalation Agent** — classifies findings by severity, routes critical/high findings to designated senior risk officers via Slack, email, and ServiceNow
-8. Pauses for Human-in-the-Loop (HITL) review with full enriched context
-9. Resumes with human decision: `approve` / `edit` / `reject`
-10. Produces a final approved summary
+End-to-end **two-pipeline** multi-agent LangGraph system for automated capital market risk document analysis with human oversight, designed to support many funds with documents ingested daily or hourly.
+
+---
+
+## Two-pipeline architecture
+
+### Pipeline 1 — Ingestion (runs hourly / daily per fund)
+```
+START → ingest_node → embed_and_persist_node → END
+```
+- Loads raw risk report documents for a given `fund_id`
+- Splits into overlapping chunks tagged with `fund_id` + `report_date` metadata
+- Embeds and **persists** chunks to the vector store (incrementally — new reports are appended, not re-embedded)
+- Fully isolated per fund: each fund's chunks are stored separately
+
+### Pipeline 2 — Review (runs at query / review time per fund)
+```
+START → retrieve → analyze → compliance_agent → market_sensitivity_agent
+      → escalation_agent → human_review (HITL pause) → finalize → END
+```
+- Retrieves top-k chunks **filtered strictly by `fund_id`** from the persistent store
+- Fund A's documents never pollute Fund B's retrieval
+- Runs the full 3-agent + HITL pipeline
 
 ---
 
@@ -21,15 +33,15 @@ End-to-end multi-agent LangGraph pipeline that:
 ```
 src/template/capital_market_risk_review/
 ├── __init__.py           ← package marker
-├── models.py             ← domain schemas (RiskFinding, ReviewState)
-├── ingest.py             ← document loading, splitting, and chunking
+├── models.py             ← domain schemas (RiskFinding, ReviewState incl. fund_id)
+├── ingest.py             ← ingest_node, embed_and_persist_node, retrieve_node
 ├── analyze.py            ← LLM risk analysis and findings extraction
 ├── compliance_agent.py   ← Regulatory Compliance Agent (Basel III/IV + XXX limits)
 ├── market_agent.py       ← Market Sensitivity Agent (VaR, CVA, RWA)
 ├── escalation_agent.py   ← Risk Escalation Agent (Slack / email / ServiceNow)
 ├── review.py             ← HITL pause, routing, and finalization
-├── graph.py              ← LangGraph pipeline assembly
-├── main.py               ← entry point / demo runner
+├── graph.py              ← build_ingestion_graph() + build_review_graph()
+├── main.py               ← demo: batch ingestion of 3 funds + review for FUND-001
 ├── DESIGN.md             ← architecture and design documentation
 └── README.md             ← this file
 ```
@@ -39,28 +51,82 @@ src/template/capital_market_risk_review/
 ## Run locally
 
 ```zsh
-# Set your API key
 export OPENAI_API_KEY="your_key_here"
-
-# Run the full pipeline
 python -m src.template.capital_market_risk_review.main
 ```
 
 ---
 
-## Graph flow
+## Graph flows
 
+### Ingestion graph
 ```
 START
-  └── ingest                   split documents into overlapping chunks
-       └── retrieve            embed + similarity search top-k chunks
-            └── analyze        LLM draft summary + structured JSON findings
-                 └── compliance_agent        Basel III/IV breach check + XXX risk appetite
-                      └── market_sensitivity_agent   VaR delta, CVA, RWA enrichment
-                           └── escalation_agent      severity routing → Slack/email/ServiceNow
-                                └── human_review     HITL interrupt (pause here)
-                                     └── finalize    apply approve / edit / reject
-                                          └── END
+  └── ingest              split docs, tag chunks with fund_id + report_date
+       └── embed_and_persist   write chunks to persistent store (keyed by fund_id)
+            └── END
+```
+
+### Review graph
+```
+START
+  └── retrieve                load fund_id-filtered chunks from persistent store
+       └── analyze            LLM draft summary + structured JSON findings
+            └── compliance_agent        Basel III/IV breach check + XXX risk appetite
+                 └── market_sensitivity_agent   VaR delta, CVA, RWA enrichment
+                      └── escalation_agent      severity routing → Slack/email/ServiceNow
+                           └── human_review     HITL interrupt (pause here)
+                                └── finalize    apply approve / edit / reject
+                                     └── END
+```
+
+---
+
+## Key design: why ingestion and retrieval are separate
+
+| Concern | Ingestion pipeline | Review pipeline |
+|---|---|---|
+| When it runs | Hourly / daily batch job | On demand at review time |
+| Embedding cost | Paid once per document | Never — already embedded |
+| fund_id isolation | Tag every chunk at ingest time | Filter at retrieval time |
+| Supports many funds | Loop over funds in batch | Single fund per review |
+| Vector store | Write (`add_documents`) | Read (`similarity_search + filter`) |
+
+---
+
+## Usage in code
+
+### Pipeline 1 — Ingest a fund's daily report
+```python
+from src.template.capital_market_risk_review.graph import build_ingestion_graph
+
+graph = build_ingestion_graph()
+graph.invoke({
+    "fund_id": "FUND-001",
+    "report_date": "2026-06-05",
+    "source_files": ["FUND-001_daily_risk_report.pdf"],
+    "raw_docs": ["VaR limit utilization..."],
+    # all other fields use empty defaults
+    ...
+})
+```
+
+### Pipeline 2 — Review a fund at query time
+```python
+from src.template.capital_market_risk_review.graph import build_review_graph
+
+graph = build_review_graph()
+config = {"configurable": {"thread_id": "review-FUND-001-2026-06-05"}}
+
+# Step 1: run until HITL pause
+paused = graph.invoke({
+    "fund_id": "FUND-001",        # ← scopes retrieval to this fund only
+    "query": "Summarize material risk issues...",
+    ...
+}, config=config)
+
+# Step 2: resume with human decision
+final = graph.invoke({"human_decision": "approve"}, config=config)
 ```
 
 ---
@@ -68,52 +134,26 @@ START
 ## Agent overview
 
 ### 🔍 Regulatory Compliance Agent (`compliance_agent.py`)
-Uses three LangChain tools in an agentic loop:
 | Tool | Purpose |
 |---|---|
-| `check_basel_threshold` | Check observed metric against Basel III/IV threshold (BCBS 352, 325, 238, 295, SR 11-7) |
+| `check_basel_threshold` | Check observed metric against Basel III/IV threshold (BCBS 352, 325, 238, SR 11-7) |
 | `get_xxx_risk_appetite` | Retrieve XXX Capital Markets internal limits and warning thresholds |
 | `generate_remediation_recommendation` | Produce structured remediation action with owner, SLA, and policy reference |
 
 ### 📊 Market Sensitivity Analysis Agent (`market_agent.py`)
-Uses three LangChain tools with Basel III capital charge calculations:
 | Tool | Purpose |
 |---|---|
-| `calculate_var_delta` | 99% / 10-day VaR, DV01, SVaR, and IMA capital charge per asset class |
-| `estimate_cva_exposure` | CVA exposure via EPE × PD × LGD with market spread factor (BCBS 325) |
-| `calculate_rwa_impact` | RWA and Pillar 1 capital requirements under Basel III Standardised Approach |
+| `calculate_var_delta` | 99%/10-day VaR, DV01, SVaR, and IMA capital charge per asset class |
+| `estimate_cva_exposure` | CVA via EPE × PD × LGD with market spread factor (BCBS 325) |
+| `calculate_rwa_impact` | RWA and Pillar 1 capital requirements under Basel III SA (BCBS 424) |
 
 ### 🚨 Risk Escalation Agent (`escalation_agent.py`)
-Uses four LangChain tools for automated notification routing:
 | Tool | Purpose |
 |---|---|
 | `classify_findings_by_severity` | Count and bucket findings; determine if escalation is required |
 | `send_slack_notification` | Route to `#xxx-cm-critical-risk-alerts` / `#xxx-cm-risk-alerts` etc. |
-| `send_email_notification` | Email designated risk officer (Chief Market Risk Officer, Head of MRM, etc.) |
-| `create_servicenow_ticket` | Open incident ticket with priority, assignment group, and XXX policy reference |
-
----
-
-## HITL flow in code
-
-```python
-# Step 1: Run full pipeline until HITL interrupt (after all 3 agents)
-paused_state = graph.invoke(initial_state, config=config)
-
-# Outputs available before human reviews:
-paused_state["draft_summary"]              # LLM draft
-paused_state["findings_json"]              # structured risk findings
-paused_state["compliance_report"]          # Basel III/IV breach report
-paused_state["market_sensitivity_report"]  # VaR / CVA / RWA metrics
-paused_state["escalation_log"]             # notification actions taken
-paused_state["escalation_required"]        # True if critical/high findings
-
-# Step 2: Resume with human decision (same thread_id)
-final_state = graph.invoke(
-    {"human_decision": "approve"},          # or "edit" / "reject"
-    config=config,
-)
-```
+| `send_email_notification` | Email designated risk officer by severity + category |
+| `create_servicenow_ticket` | Open P1/P2 incident with assignment group and XXX policy reference |
 
 ---
 
@@ -121,12 +161,13 @@ final_state = graph.invoke(
 
 | File | What to extend |
 |---|---|
-| `models.py` | Add risk categories, `user_id`, `confidence_score`, `escalation_level` |
-| `ingest.py` | Swap InMemoryVectorStore → pgvector/Chroma, add PDF/Word/Excel loaders |
-| `analyze.py` | Swap gpt-4o-mini → gpt-4o, add Pydantic structured output, self-critique node |
-| `compliance_agent.py` | Connect to Bloomberg Regulatory feed, add OSFI B-2/B-10, FRTB SBM |
-| `market_agent.py` | Connect to Bloomberg BLPAPI / Murex for live positions, add Greeks (DV01, CS01, Vega) |
-| `escalation_agent.py` | Wire real Slack SDK / SMTP / ServiceNow REST API, add PagerDuty / JIRA |
-| `review.py` | Add multi-tier approval chain, audit log to PostgreSQL, SLA timer |
-| `graph.py` | Add parallel branches for compliance+market agents, critique node, PDF report node |
-| `main.py` | Add CLI args (argparse), batch mode, real document file loading |
+| `models.py` | Add `user_id`, `confidence_score`, `escalation_level`, `report_date` range filter |
+| `ingest.py` | Swap `_FUND_DOCUMENT_STORE` → pgvector; add `RecordManager` for dedup; add PDF/Word loaders |
+| `ingest.py` | Add report_date TTL: purge chunks older than N days to control index size |
+| `analyze.py` | Swap gpt-4o-mini → gpt-4o; add Pydantic structured output; add self-critique |
+| `compliance_agent.py` | Connect Bloomberg Regulatory feed; add OSFI B-2/B-10; add FRTB SBM |
+| `market_agent.py` | Connect Bloomberg BLPAPI / Murex for live positions; add Greeks (DV01, CS01) |
+| `escalation_agent.py` | Wire real Slack SDK / SMTP / ServiceNow REST API; add PagerDuty / JIRA |
+| `review.py` | Add multi-tier approval chain; audit log to PostgreSQL; SLA timer |
+| `graph.py` | Add parallel branches; critique node; PDF report node; LangSmith tracing |
+| `main.py` | Add argparse for fund_id + file path; schedule with Airflow / cron |
