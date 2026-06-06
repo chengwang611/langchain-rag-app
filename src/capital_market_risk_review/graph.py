@@ -30,17 +30,17 @@ from __future__ import annotations
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, START, StateGraph
 
-from src.capital_market_risk_review.analyze import analyze_node
-from src.capital_market_risk_review.compliance_agent import compliance_agent_node
-from src.capital_market_risk_review.escalation_agent import escalation_agent_node
-from src.capital_market_risk_review.ingest import (
+from capital_market_risk_review.analyze import analyze_node
+from capital_market_risk_review.compliance_agent import compliance_agent_node
+from capital_market_risk_review.escalation_agent import escalation_agent_node
+from capital_market_risk_review.ingest import (
     embed_and_persist_node,
     ingest_node,
     retrieve_node,
 )
-from src.capital_market_risk_review.market_agent import market_sensitivity_agent_node
-from src.capital_market_risk_review.models import ReviewState
-from src.capital_market_risk_review.review import (
+from capital_market_risk_review.market_agent import market_sensitivity_agent_node
+from capital_market_risk_review.models import ReviewState
+from capital_market_risk_review.review import (
     finalize_node,
     human_review_node,
     route_after_review,

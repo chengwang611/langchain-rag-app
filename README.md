@@ -59,7 +59,7 @@ cp .env.example .env
 # Edit .env and set OPENAI_API_KEY
 
 # Run the demo (ingests 3 funds × 2 dates, then reviews FUND-001)
-python -m src.capital_market_risk_review.main
+python -m capital_market_risk_review.main
 ```
 
 ---
@@ -105,7 +105,7 @@ START
 
 ### Pipeline 1 — Ingest a fund's daily report
 ```python
-from src.capital_market_risk_review.graph import build_ingestion_graph
+from capital_market_risk_review.graph import build_ingestion_graph
 
 graph = build_ingestion_graph()
 graph.invoke({
@@ -119,7 +119,7 @@ graph.invoke({
 
 ### Pipeline 2 — Review a fund at query time
 ```python
-from src.capital_market_risk_review.graph import build_review_graph
+from capital_market_risk_review.graph import build_review_graph
 
 graph = build_review_graph()
 config = {"configurable": {"thread_id": "review-FUND-001-2026-06-05"}}
@@ -193,7 +193,7 @@ Interactive Swagger UI available at `https://<app-url>/docs` once deployed.
 
 ```zsh
 pip install -r requirements.txt
-uvicorn src.capital_market_risk_review.api:app --reload --port 8000
+uvicorn capital_market_risk_review.api:app --reload --port 8000
 # Open http://localhost:8000/docs
 ```
 

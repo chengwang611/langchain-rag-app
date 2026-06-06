@@ -10,7 +10,7 @@ INGESTION PIPELINE  (runs hourly / daily as a batch job)
   - Splits into overlapping chunks
   - Tags every chunk with fund_id + report_date metadata
   - Embeds and writes chunks to the persistent vector store
-  - Supports incremental runs: new reports are appended, not re-embedded
+  - Suppor ts incremental runs: new reports are appended, not re-embedded
 
 
 REVIEW PIPELINE  (runs at query / review time)
@@ -37,7 +37,7 @@ from langchain_core.vectorstores import InMemoryVectorStore
 from langchain_openai import OpenAIEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
-from src.capital_market_risk_review.models import ReviewState
+from capital_market_risk_review.models import ReviewState
 
 
 # ── Splitter config ──────────────────────────────────────────────────────────

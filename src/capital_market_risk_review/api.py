@@ -10,7 +10,7 @@ Exposes two pipelines as REST endpoints:
   GET  /health                       — Health check (used by Azure Container Apps)
 
 Run locally:
-  uvicorn src.capital_market_risk_review.api:app --reload --port 8000
+  uvicorn capital_market_risk_review.api:app --reload --port 8000
 
 EXTEND:
 - Add OAuth2 / Azure AD authentication (fastapi.security.OAuth2AuthorizationCodeBearer)
@@ -29,7 +29,7 @@ from typing import Optional
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
-from src.capital_market_risk_review.graph import (
+from capital_market_risk_review.graph import (
     build_ingestion_graph,
     build_review_graph,
 )
