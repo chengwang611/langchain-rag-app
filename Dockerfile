@@ -10,7 +10,6 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt \
     && pip install --no-cache-dir "fastapi>=0.115.0" "uvicorn[standard]>=0.30.0"
 
-
 # ── Runtime stage ─────────────────────────────────────────────────────────────
 FROM python:3.12-slim AS runtime
 
