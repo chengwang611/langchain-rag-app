@@ -53,7 +53,7 @@ class RiskFinding:
     snippet: str                   # exact text evidence from document
     rationale: str                 # analyst reasoning
     source_id: str                 # document chunk reference
-    page_number: int | None = None # EXTEND: populate when parsing PDF pages
+    page_number: Optional[int] = None # EXTEND: populate when parsing PDF pages
     tags: list[str] = field(default_factory=list)  # EXTEND: free-form labels
 
 
@@ -73,7 +73,7 @@ class ReviewState(TypedDict):
     # Every chunk is tagged with fund_id at ingest time so that retrieval
     # never mixes documents across funds.
     fund_id: str                               # e.g. "FUND-001", "APAC-HY-003"
-    report_date: str | None                    # YYYY-MM-DD date of the risk report
+    report_date: Optional[str]                 # YYYY-MM-DD date of the risk report
     source_files: list[str]                    # file paths / S3 keys ingested this run
 
     # ── Input ────────────────────────────────────────────────────────────────
@@ -89,10 +89,10 @@ class ReviewState(TypedDict):
 
     # ── Agent outputs ────────────────────────────────────────────────────────
     # Populated by compliance_agent_node (Basel III/IV + XXX risk appetite check)
-    compliance_report: str | None
+    compliance_report: Optional[str]
 
     # Populated by market_sensitivity_agent_node (VaR delta, CVA, RWA)
-    market_sensitivity_report: str | None
+    market_sensitivity_report: Optional[str]
 
     # Populated by escalation_agent_node (Slack / email / ServiceNow actions taken)
     escalation_log: list[str]
@@ -102,8 +102,7 @@ class ReviewState(TypedDict):
 
     # ── HITL fields ──────────────────────────────────────────────────────────
     human_decision: HumanDecision              # approve / edit / reject
-    edited_summary: str | None                 # human-edited summary if decision==edit
+    edited_summary: Optional[str]              # human-edited summary if decision==edit
 
     # ── Output ───────────────────────────────────────────────────────────────
-    final_summary: str | None                  # approved final summary
-
+    final_summary: Optional[str]               # approved final summary

@@ -19,6 +19,7 @@ EXTEND:
 from __future__ import annotations
 
 import json
+from typing import Optional
 
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from langchain_core.tools import tool
@@ -189,7 +190,7 @@ def estimate_cva_exposure(
 def calculate_rwa_impact(
     exposure_class: str,
     exposure_usd: float,
-    risk_weight_pct: float | None = None,
+    risk_weight_pct: Optional[float] = None,
 ) -> str:
     """
     Calculate Risk-Weighted Asset (RWA) impact and minimum capital requirements
@@ -315,4 +316,3 @@ def market_sensitivity_agent_node(state: ReviewState) -> ReviewState:
         "market_sensitivity_report": market_report,
         "messages": [AIMessage(content=f"[Market Sensitivity Agent]\n{market_report}")],
     }
-
