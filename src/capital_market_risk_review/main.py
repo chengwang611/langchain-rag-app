@@ -28,11 +28,11 @@ import json
 
 from dotenv import load_dotenv
 
-from capital_market_risk_review.graph import (
+from .graph import (
     build_ingestion_graph,
     build_review_graph,
 )
-from capital_market_risk_review.models import ReviewState
+from .models import ReviewState
 
 load_dotenv()
 

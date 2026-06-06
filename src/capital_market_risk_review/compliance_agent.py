@@ -22,7 +22,7 @@ from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from langchain_core.tools import tool
 from langchain_openai import ChatOpenAI
 
-from capital_market_risk_review.models import ReviewState
+from .models import ReviewState
 
 
 # ── LLM config ────────────────────────────────────────────────────────────────

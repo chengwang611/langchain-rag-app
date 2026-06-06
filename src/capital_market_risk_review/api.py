@@ -29,7 +29,7 @@ from typing import Optional
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
-from capital_market_risk_review.graph import (
+from .graph import (
     build_ingestion_graph,
     build_review_graph,
 )
