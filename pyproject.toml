@@ -1,24 +1,38 @@
 [project]
 name = "langchain-rag-app"
-version = "0.1.0"
-description = "Starter RAG app with LangChain and Chroma"
+version = "1.0.0"
+description = "Capital Market Risk Review — multi-agent LangGraph pipeline with FastAPI service"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.9"
 dependencies = [
+    # ── LangChain ────────────────────────────────────────────────────────────
     "langchain>=0.3.0",
     "langchain-core>=0.3.0",
     "langchain-community>=0.3.0",
     "langchain-openai>=0.2.0",
     "langchain-chroma>=0.2.0",
     "langchain-text-splitters>=0.3.0",
+    # ── LangGraph ────────────────────────────────────────────────────────────
+    "langgraph>=0.2.0",
+    # ── OpenAI ───────────────────────────────────────────────────────────────
+    "openai>=1.40.0",
+    # ── FastAPI service layer ─────────────────────────────────────────────────
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.30.0",
+    # ── Utilities ────────────────────────────────────────────────────────────
     "python-dotenv>=1.0.0",
     "pypdf>=5.0.0",
 ]
 
 [project.optional-dependencies]
-dev = ["ruff>=0.8.0"]
+dev = [
+    "ruff>=0.8.0",
+    "pytest>=8.0.0",
+    "httpx>=0.27.0",       # required for FastAPI TestClient
+]
 
 [project.scripts]
+risk-ingest = "capital_market_risk_review.main:main"
 rag-ingest = "rag_app.cli:ingest_main"
 rag-query = "rag_app.cli:query_main"
 

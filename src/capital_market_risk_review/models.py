@@ -10,7 +10,7 @@ Extend this file to:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Annotated, Literal, TypedDict
+from typing import Annotated, Literal, Optional, TypedDict
 
 from langgraph.graph.message import add_messages
 
@@ -33,7 +33,7 @@ Severity = Literal["low", "medium", "high", "critical"]
 
 # ── Human decision options ────────────────────────────────────────────────────
 # EXTEND: add "escalate" or "delegate" for multi-tier approval workflows
-HumanDecision = Literal["approve", "edit", "reject"] | None
+HumanDecision = Optional[Literal["approve", "edit", "reject"]]
 
 
 @dataclass
