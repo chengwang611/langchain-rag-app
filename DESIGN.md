@@ -239,6 +239,44 @@ for _ in range(max_iterations):
 | `medium` | `#xxx-cm-risk-monitoring` | — | — | 5 business days |
 | `low` | `#xxx-cm-risk-log` | — | — | Log only |
 
+### 3.12 REST API Layer (`api.py`)
+
+The pipeline is exposed as a FastAPI service. Each endpoint maps directly to a pipeline action:
+
+| Method | Path | Calls | Returns |
+|---|---|---|---|
+| `GET` | `/health` | — | `{"status": "ok"}` — Azure Container Apps liveness probe |
+| `POST` | `/ingest/{fund_id}` | `build_ingestion_graph().invoke()` | `202 Accepted` with ingestion status |
+| `POST` | `/review/start` | `build_review_graph().invoke()` until HITL pause | `thread_id` + all agent outputs |
+| `POST` | `/review/{thread_id}/resume` | `build_review_graph().invoke(human_decision)` | `final_summary` |
+| `GET` | `/review/{thread_id}/status` | `review_graph.get_state()` | current `human_decision`, `final_summary`, `escalation_required` |
+
+**Request / Response flow:**
+
+```
+Client                              FastAPI (api.py)              LangGraph
+  │                                       │                           │
+  │  POST /review/start                   │                           │
+  │  { fund_id, query }  ────────────────►│  build_review_graph()     │
+  │                                       │  .invoke(state, config) ──►│
+  │                                       │                           │ retrieve
+  │                                       │                           │ → analyze
+  │                                       │                           │ → compliance_agent
+  │                                       │                           │ → market_agent
+  │                                       │                           │ → escalation_agent
+  │                                       │◄── paused state ──────────│ [HITL interrupt]
+  │◄── { thread_id, draft_summary,        │
+  │      compliance_report,               │
+  │      escalation_log, ... }            │
+  │                                       │
+  │  POST /review/{thread_id}/resume      │
+  │  { human_decision: "approve" } ──────►│  .invoke({human_decision},│
+  │                                       │           config) ────────►│ finalize_node
+  │◄── { final_summary }  ────────────────│◄── final state ───────────│
+```
+
+**Pydantic models** (`IngestRequest`, `ReviewStartRequest`, `ResumeRequest`) validate all inputs before passing to LangGraph, preventing invalid state from entering the pipeline.
+
 ---
 
 ## 4. Architecture Decisions
@@ -252,6 +290,11 @@ for _ in range(max_iterations):
 | Agent pattern | ReAct tool-calling loop | Deterministic tool selection; auditable reasoning chain |
 | LLM | `gpt-4o-mini` | Cost-efficient for template; swap to `gpt-4o` for production |
 | Checkpointing | `MemorySaver` | In-process HITL; `EXTEND` to `SqliteSaver/PostgresSaver` |
+| API framework | FastAPI | Async, typed, auto-generates OpenAPI / Swagger docs |
+| Container runtime | Docker (multi-stage) | Slim image; non-root user per Azure Container Apps policy |
+| Deployment target | Azure Container Apps | Native HTTPS, auto-scale to 0, managed identity, no k8s overhead |
+| CI/CD | GitHub Actions | Build + push to ACR, deploy to Container Apps on push to master |
+| Secrets | Azure Key Vault + managed identity | No secrets in env vars or code; zero-trust approach |
 
 ---
 
@@ -337,6 +380,62 @@ checkpointer = PostgresSaver.from_conn_string(os.environ["POSTGRES_URL"])
 graph = build_review_graph(checkpointer=checkpointer)
 ```
 
+### 6.8 Azure Container Apps Deployment
+
+**Infrastructure files added:**
+- `api.py` — FastAPI service with 5 endpoints
+- `Dockerfile` — multi-stage build, non-root user, HEALTHCHECK
+- `.github/workflows/deploy.yml` — CI/CD: build → push ACR → deploy Container Apps
+
+**One-time setup:**
+```zsh
+RESOURCE_GROUP=rg-risk-review
+LOCATION=australiaeast
+ACR_NAME=acrcmrisk
+APP_NAME=api-risk-review
+APP_ENV=env-risk-review
+
+az group create --name $RESOURCE_GROUP --location $LOCATION
+az acr create --resource-group $RESOURCE_GROUP --name $ACR_NAME --sku Basic --admin-enabled true
+az containerapp env create --name $APP_ENV --resource-group $RESOURCE_GROUP --location $LOCATION
+```
+
+**Build and deploy:**
+```zsh
+az acr build --registry $ACR_NAME --image capital-market-risk-review:latest .
+
+ACR_SERVER=$(az acr show --name $ACR_NAME --query loginServer -o tsv)
+ACR_USER=$(az acr credential show --name $ACR_NAME --query username -o tsv)
+ACR_PASS=$(az acr credential show --name $ACR_NAME --query passwords[0].value -o tsv)
+
+az containerapp create \
+  --name $APP_NAME --resource-group $RESOURCE_GROUP --environment $APP_ENV \
+  --image $ACR_SERVER/capital-market-risk-review:latest \
+  --registry-server $ACR_SERVER --registry-username $ACR_USER --registry-password $ACR_PASS \
+  --target-port 8000 --ingress external \
+  --min-replicas 1 --max-replicas 5 \
+  --secrets openai-key=<YOUR_OPENAI_API_KEY> \
+  --env-vars OPENAI_API_KEY=secretref:openai-key
+```
+
+**GitHub Actions CI/CD:**
+```zsh
+# Create service principal — store JSON as GitHub secret AZURE_CREDENTIALS
+az ad sp create-for-rbac --name "github-actions-risk-review" --role contributor \
+  --scopes /subscriptions/<SUB_ID>/resourceGroups/rg-risk-review --sdk-auth
+```
+
+**Azure Key Vault (production secrets):**
+```zsh
+az keyvault create --name kv-risk-review --resource-group $RESOURCE_GROUP --location $LOCATION
+az keyvault secret set --vault-name kv-risk-review --name OPENAI-API-KEY --value "<key>"
+
+az containerapp identity assign --name $APP_NAME --resource-group $RESOURCE_GROUP --system-assigned
+PRINCIPAL_ID=$(az containerapp show --name $APP_NAME --resource-group $RESOURCE_GROUP \
+  --query identity.principalId -o tsv)
+az keyvault set-policy --name kv-risk-review --object-id $PRINCIPAL_ID --secret-permissions get list
+```
+
 ---
 
 ## 7. Production Roadmap
@@ -346,6 +445,8 @@ graph = build_review_graph(checkpointer=checkpointer)
 | P0 | Replace `_FUND_DOCUMENT_STORE` with PGVector | Platform Engineering |
 | P0 | Add `RecordManager` deduplication in `embed_and_persist_node` | Platform Engineering |
 | P0 | Replace `MemorySaver` with `PostgresSaver` | Platform Engineering |
+| P0 | Wire Azure Key Vault in Container Apps for all secrets | Platform Engineering |
+| P1 | Add Azure AD / OAuth2 authentication to `api.py` | Platform Engineering |
 | P1 | Wire real Slack / email / ServiceNow in `escalation_agent.py` | Platform Engineering |
 | P1 | Connect Bloomberg BLPAPI for live market data | Quant Risk Engineering |
 | P1 | Add OSFI B-2 / B-10 rules to `compliance_agent.py` | Regulatory Affairs |
@@ -388,3 +489,7 @@ graph = build_review_graph(checkpointer=checkpointer)
 | 2026-06-05 | Added `embed_and_persist_node` — separates embedding cost from retrieval |
 | 2026-06-05 | Module-level `_FUND_DOCUMENT_STORE` as demo persistence with pgvector swap hooks |
 | 2026-06-05 | Added `build_ingestion_graph()` to `graph.py`; `build_review_graph()` starts from `retrieve_node` |
+| 2026-06-05 | **Added FastAPI service layer** (`api.py`) — 5 endpoints mapping pipelines to REST |
+| 2026-06-05 | **Added Dockerfile** — multi-stage build, non-root user, HEALTHCHECK on `/health` |
+| 2026-06-05 | **Added GitHub Actions CI/CD** — build + push ACR + deploy Container Apps on master push |
+| 2026-06-05 | Chose Azure Container Apps over AKS — no k8s overhead, native HTTPS, auto-scale to 0 |

@@ -8,6 +8,7 @@
 - Implemented a **Risk Escalation Agent** (`escalation_agent.py`) with four notification tools (`classify_findings_by_severity`, `send_slack_notification`, `send_email_notification`, `create_servicenow_ticket`) that classify findings by severity and autonomously route critical findings to senior risk officers via Slack (`#xxx-cm-critical-risk-alerts`), email to designated officers, and ServiceNow P1/P2 incident tickets
 - Implemented a **Human-in-the-Loop (HITL) interrupt pattern** (`review.py`) using LangGraph checkpointing (`thread_id`), enabling XXX risk analysts to approve, edit, or reject AI-generated findings — enriched with compliance breach flags, VaR/CVA/RWA metrics, and escalation log — before finalization
 - Designed a typed **shared state contract** (`ReviewState` TypedDict, 17 fields in `models.py`) covering both pipelines, enforcing clean interfaces between ingestion, retrieval, LLM analysis, agent enrichment, HITL, and finalization stages
+- Deployed the full pipeline as a **production REST API** (`api.py`, FastAPI) containerised via a multi-stage `Dockerfile` and deployed to **Azure Container Apps** — exposing five endpoints (`POST /ingest/{fund_id}`, `POST /review/start`, `POST /review/{thread_id}/resume`, `GET /review/{thread_id}/status`, `GET /health`) with Pydantic request validation, Azure Key Vault secret management, and automated CI/CD via GitHub Actions (build → push to Azure Container Registry → deploy on every push to `master`)
 
 
 ### Traceability — Resume Bullet → Code
@@ -29,3 +30,6 @@
 | HITL interrupt + thread_id | `review.py` | `human_review_node()`, `MemorySaver` checkpointing |
 | Typed shared state (17 fields) | `models.py` | `ReviewState` TypedDict incl. `fund_id`, `report_date`, `source_files` |
 | Multi-fund demo | `main.py` | `FUND_REPORTS` dict, `run_ingestion_pipeline()`, 3 funds × 2 dates |
+| REST API service layer | `api.py` | 5 FastAPI endpoints, Pydantic models, `_empty_state()` helper |
+| Docker containerisation | `Dockerfile` | Multi-stage build, non-root user, HEALTHCHECK on `/health` |
+| Azure Container Apps CI/CD | `.github/workflows/deploy.yml` | Build → ACR push → Container Apps deploy on master push |

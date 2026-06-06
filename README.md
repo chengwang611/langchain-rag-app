@@ -173,6 +173,125 @@ final = graph.invoke({"human_decision": "approve"}, config=config)
 
 ---
 
+## Deploying as an Azure Container Apps service
+
+The pipeline is exposed as a REST API via `api.py` (FastAPI) and packaged as a Docker container for deployment on Azure Container Apps.
+
+### API endpoints
+
+| Method | Path | Pipeline | Description |
+|---|---|---|---|
+| `GET` | `/health` | — | Liveness probe (used by Azure Container Apps) |
+| `POST` | `/ingest/{fund_id}` | Ingestion | Ingest documents for a fund (call hourly/daily) |
+| `POST` | `/review/start` | Review | Start a review — runs to HITL pause, returns `thread_id` |
+| `POST` | `/review/{thread_id}/resume` | Review | Resume with human decision (`approve`/`edit`/`reject`) |
+| `GET` | `/review/{thread_id}/status` | Review | Poll current review state |
+
+Interactive Swagger UI available at `https://<app-url>/docs` once deployed.
+
+### Run API locally
+
+```zsh
+pip install -r requirements.txt
+uvicorn src.capital_market_risk_review.api:app --reload --port 8000
+# Open http://localhost:8000/docs
+```
+
+### One-time Azure setup
+
+```zsh
+RESOURCE_GROUP=rg-risk-review
+LOCATION=australiaeast
+ACR_NAME=acrcmrisk                  # must be globally unique
+APP_ENV=env-risk-review
+APP_NAME=api-risk-review
+
+az login
+az group create --name $RESOURCE_GROUP --location $LOCATION
+
+# Azure Container Registry
+az acr create --resource-group $RESOURCE_GROUP \
+              --name $ACR_NAME --sku Basic --admin-enabled true
+
+# Container Apps environment
+az containerapp env create \
+  --name $APP_ENV \
+  --resource-group $RESOURCE_GROUP \
+  --location $LOCATION
+```
+
+### Build and deploy manually
+
+```zsh
+# Build and push image to ACR in one step
+az acr build \
+  --registry $ACR_NAME \
+  --image capital-market-risk-review:latest .
+
+# Retrieve ACR credentials
+ACR_SERVER=$(az acr show --name $ACR_NAME --query loginServer -o tsv)
+ACR_USER=$(az acr credential show --name $ACR_NAME --query username -o tsv)
+ACR_PASS=$(az acr credential show --name $ACR_NAME --query passwords[0].value -o tsv)
+
+# Create and deploy the Container App
+az containerapp create \
+  --name $APP_NAME \
+  --resource-group $RESOURCE_GROUP \
+  --environment $APP_ENV \
+  --image $ACR_SERVER/capital-market-risk-review:latest \
+  --registry-server $ACR_SERVER \
+  --registry-username $ACR_USER \
+  --registry-password $ACR_PASS \
+  --target-port 8000 \
+  --ingress external \
+  --min-replicas 1 --max-replicas 5 \
+  --secrets openai-key=<YOUR_OPENAI_API_KEY> \
+  --env-vars OPENAI_API_KEY=secretref:openai-key
+
+# Get the deployed URL
+az containerapp show \
+  --name $APP_NAME --resource-group $RESOURCE_GROUP \
+  --query properties.configuration.ingress.fqdn -o tsv
+```
+
+### CI/CD — GitHub Actions (auto-deploy on push to master)
+
+The workflow at `.github/workflows/deploy.yml` automates build + deploy on every push to `master`.
+
+```zsh
+# Create a service principal and store output as GitHub secret: AZURE_CREDENTIALS
+az ad sp create-for-rbac \
+  --name "github-actions-risk-review" \
+  --role contributor \
+  --scopes /subscriptions/<SUB_ID>/resourceGroups/rg-risk-review \
+  --sdk-auth
+```
+
+Push to `master` → GitHub Actions builds a new image tagged with the commit SHA → deploys to Container Apps.
+
+### Secure secrets with Azure Key Vault (production)
+
+```zsh
+az keyvault create --name kv-risk-review \
+  --resource-group $RESOURCE_GROUP --location $LOCATION
+
+az keyvault secret set --vault-name kv-risk-review \
+  --name OPENAI-API-KEY --value "<your-key>"
+
+# Grant Container App managed identity access to Key Vault
+az containerapp identity assign \
+  --name $APP_NAME --resource-group $RESOURCE_GROUP --system-assigned
+
+PRINCIPAL_ID=$(az containerapp show \
+  --name $APP_NAME --resource-group $RESOURCE_GROUP \
+  --query identity.principalId -o tsv)
+
+az keyvault set-policy --name kv-risk-review \
+  --object-id $PRINCIPAL_ID --secret-permissions get list
+```
+
+---
+
 ## Extension points summary
 
 | File | What to extend |

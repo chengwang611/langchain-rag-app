@@ -1,0 +1,73 @@
+name: Build and Deploy to Azure Container Apps
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:          # allow manual trigger from GitHub UI
+
+env:
+  RESOURCE_GROUP: rg-risk-review
+  ACR_NAME: acrcmrisk
+  APP_NAME: api-risk-review
+  APP_ENV: env-risk-review
+  IMAGE_NAME: capital-market-risk-review
+
+jobs:
+  # ── Job 1: Build and push Docker image to Azure Container Registry ──────────
+  build:
+    name: Build & Push Image
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Azure login
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+          # SETUP: create with:
+          # az ad sp create-for-rbac --name "github-actions-risk-review" \
+          #   --role contributor \
+          #   --scopes /subscriptions/<SUB_ID>/resourceGroups/rg-risk-review \
+          #   --sdk-auth
+          # Then store the JSON output as GitHub secret AZURE_CREDENTIALS
+
+      - name: Build and push image to ACR
+        run: |
+          az acr build \
+            --registry ${{ env.ACR_NAME }} \
+            --image ${{ env.IMAGE_NAME }}:${{ github.sha }} \
+            --image ${{ env.IMAGE_NAME }}:latest \
+            .
+
+  # ── Job 2: Deploy new image to Azure Container Apps ─────────────────────────
+  deploy:
+    name: Deploy to Container Apps
+    runs-on: ubuntu-latest
+    needs: build
+    environment: production       # requires manual approval in GitHub Environments
+
+    steps:
+      - name: Azure login
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Deploy to Azure Container Apps
+        run: |
+          az containerapp update \
+            --name ${{ env.APP_NAME }} \
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --image ${{ env.ACR_NAME }}.azurecr.io/${{ env.IMAGE_NAME }}:${{ github.sha }}
+
+      - name: Get app URL
+        run: |
+          URL=$(az containerapp show \
+            --name ${{ env.APP_NAME }} \
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --query properties.configuration.ingress.fqdn -o tsv)
+          echo "Deployed to: https://$URL"
+          echo "Health check: https://$URL/health"
+          echo "API docs:     https://$URL/docs"
+

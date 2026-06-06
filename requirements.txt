@@ -16,6 +16,10 @@ langgraph>=0.2.0
 # ── OpenAI (LLM + embeddings) ────────────────────────────────────────────────
 openai>=1.40.0
 
+# ── REST API (Azure Container Apps service layer) ────────────────────────────
+fastapi>=0.115.0
+uvicorn[standard]>=0.30.0
+
 # ── Environment / config ─────────────────────────────────────────────────────
 python-dotenv>=1.0.0
 
