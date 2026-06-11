@@ -38,6 +38,15 @@ python -m capital_market_risk_review.embedding_process.main \
   --vector-backend in-memory
 ```
 
+Run with local file persistence backend:
+
+```zsh
+python -m capital_market_risk_review.embedding_process.main \
+  --process-date 2026-06-10 \
+  --vector-backend file \
+  --file-backend-path .local_data/fund_chunks.jsonl
+```
+
 ## Airflow usage idea
 
 Use a `BashOperator` (phase 1):
@@ -56,7 +65,9 @@ BashOperator(
 
 ## Phase 1 and migration path
 
-- Phase 1 backend: `InMemoryFundVectorStore`.
+- Phase 1 backends:
+  - `InMemoryFundVectorStore` for fastest local loop.
+  - `FileFundVectorStore` for local persistence across process restarts.
 - Switch point: `vector_backend.py` -> `PGVectorFundStore` implementation.
 - No Spark control-flow changes needed when switching backend.
 
@@ -67,3 +78,22 @@ BashOperator(
 - Add Delta table for run metrics and failures.
 - Add report-date retention and fund-level backfill mode.
 
+## Kubernetes note (important)
+
+If this job runs in k8s, set one Python path that exists in both driver and executor images.
+The entrypoint now aligns Spark driver and worker Python automatically, but explicit env is best in production.
+
+Recommended pod env:
+
+```zsh
+export EMBEDDING_PROCESS_PYTHON_EXEC=/usr/bin/python3
+```
+
+Equivalent Spark submit configs (if you manage Spark outside this script):
+
+```zsh
+--conf spark.pyspark.python=/usr/bin/python3
+--conf spark.pyspark.driver.python=/usr/bin/python3
+--conf spark.executorEnv.PYSPARK_PYTHON=/usr/bin/python3
+--conf spark.kubernetes.executorEnv.PYSPARK_PYTHON=/usr/bin/python3
+```

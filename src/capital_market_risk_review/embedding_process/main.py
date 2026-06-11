@@ -13,23 +13,71 @@ Example (local):
 from __future__ import annotations
 
 import argparse
+import json
 import os
+import sys
 from datetime import date
+from pathlib import Path
 
 from pyspark.sql import SparkSession
 from pyspark.sql import functions as F
 
-from .spark_pipeline import EmbeddingPipelineConfig, SparkEmbeddingPipeline
-from .vector_backend import InMemoryFundVectorStore, PGVectorFundStore
+# Support both execution styles:
+# 1) python -m capital_market_risk_review.embedding_process.main
+# 2) python src/capital_market_risk_review/embedding_process/main.py
+try:
+    from .spark_pipeline import EmbeddingPipelineConfig, SparkEmbeddingPipeline
+    from .vector_backend import FileFundVectorStore, InMemoryFundVectorStore, PGVectorFundStore
+except ImportError:
+    project_src = Path(__file__).resolve().parents[2]
+    if str(project_src) not in sys.path:
+        sys.path.insert(0, str(project_src))
+    from capital_market_risk_review.embedding_process.spark_pipeline import (
+        EmbeddingPipelineConfig,
+        SparkEmbeddingPipeline,
+    )
+    from capital_market_risk_review.embedding_process.vector_backend import (
+        FileFundVectorStore,
+        InMemoryFundVectorStore,
+        PGVectorFundStore,
+    )
+
+
+def _resolve_python_exec() -> str:
+    """Return one interpreter path for Spark driver and executors.
+
+    Precedence keeps behavior predictable in k8s:
+    1) explicit app override
+    2) existing Spark env override
+    3) current process interpreter
+    """
+    return (
+        os.environ.get("EMBEDDING_PROCESS_PYTHON_EXEC")
+        or os.environ.get("PYSPARK_PYTHON")
+        or sys.executable
+    )
 
 
 def _build_spark(app_name: str, shuffle_partitions: int) -> SparkSession:
-    """Create Spark session with practical defaults for daily batch execution."""
+    """Create a standard Spark session for batch ingestion jobs."""
+    python_exec = _resolve_python_exec()
+
+    # Keep Spark worker/driver interpreter aligned to avoid version mismatch.
+    os.environ.setdefault("PYSPARK_DRIVER_PYTHON", python_exec)
+    os.environ.setdefault("PYSPARK_PYTHON", python_exec)
+
     return (
         SparkSession.builder.appName(app_name)
-        # EXTEND: tune partitions based on cluster size and input volume.
+        .config("spark.pyspark.driver.python", python_exec)
+        .config("spark.pyspark.python", python_exec)
+        # These configs are important when Spark executors run in separate k8s pods.
+        .config("spark.executorEnv.PYSPARK_PYTHON", python_exec)
+        .config("spark.executorEnv.PYSPARK_DRIVER_PYTHON", python_exec)
+        .config("spark.kubernetes.driverEnv.PYSPARK_PYTHON", python_exec)
+        .config("spark.kubernetes.driverEnv.PYSPARK_DRIVER_PYTHON", python_exec)
+        .config("spark.kubernetes.executorEnv.PYSPARK_PYTHON", python_exec)
+        .config("spark.kubernetes.executorEnv.PYSPARK_DRIVER_PYTHON", python_exec)
         .config("spark.sql.shuffle.partitions", str(shuffle_partitions))
-        # EXTEND: configure dynamic allocation and adaptive query execution.
         .config("spark.sql.adaptive.enabled", "true")
         .getOrCreate()
     )
@@ -46,12 +94,9 @@ def _load_source_df(spark: SparkSession, input_jsonl: str | None, process_date: 
     - text
     """
     if input_jsonl:
-        # Expected format: one JSON object per line.
         df = spark.read.json(input_jsonl)
         return df.withColumn("report_date", F.coalesce(F.col("report_date"), F.lit(process_date)))
 
-    # Demo fallback if no input path is provided.
-    # EXTEND: replace with Azure Blob / ADLS / S3 readers in production.
     sample = []
     for fund_idx in range(1, 11):
         fund_id = f"FUND-{fund_idx:04d}"
@@ -70,17 +115,20 @@ def _load_source_df(spark: SparkSession, input_jsonl: str | None, process_date: 
                     * 25,
                 }
             )
-    return spark.createDataFrame(sample)
+
+    # Avoid createDataFrame(sample) to keep the demo path independent from pyarrow.
+    json_rows = [json.dumps(x) for x in sample]
+    rdd = spark.sparkContext.parallelize(json_rows)
+    return spark.read.json(rdd)
 
 
-def _build_backend(name: str):
-    """Select vector backend.
-
-    Phase 1 default is in-memory. PGVector is intentionally scaffolded for easy
-    switch once infra is ready.
-    """
+def _build_backend(name: str, file_backend_path: str):
+    """Select vector backend implementation."""
     if name == "in-memory":
         return InMemoryFundVectorStore()
+
+    if name == "file":
+        return FileFundVectorStore(storage_path=file_backend_path)
 
     if name == "pgvector":
         conn = os.getenv("PGVECTOR_CONNECTION_STRING", "")
@@ -110,8 +158,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--vector-backend",
         default="in-memory",
-        choices=["in-memory", "pgvector"],
+        choices=["in-memory", "file", "pgvector"],
         help="Vector store backend implementation.",
+    )
+    parser.add_argument(
+        "--file-backend-path",
+        default=".local_data/fund_chunks.jsonl",
+        help="Local JSONL path used when --vector-backend file.",
     )
     parser.add_argument("--chunk-size", type=int, default=1200)
     parser.add_argument("--chunk-overlap", type=int, default=200)
@@ -133,7 +186,7 @@ def main() -> int:
             input_jsonl=args.input_jsonl,
             process_date=args.process_date,
         )
-        backend = _build_backend(args.vector_backend)
+        backend = _build_backend(args.vector_backend, args.file_backend_path)
         pipeline = SparkEmbeddingPipeline(
             backend=backend,
             config=EmbeddingPipelineConfig(
@@ -153,4 +206,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

@@ -20,7 +20,11 @@ dependencies = [
     "fastapi>=0.115.0",
     "uvicorn[standard]>=0.30.0",
     # ── Batch ingestion/embedding (PySpark) ──────────────────────────────────
-    "pyspark>=3.5.0",
+    # Spark 3.x keeps Java 11 compatibility for local/batch environments.
+    "pyspark>=3.5.0,<4.0.0",
+    # Keep NumPy/PyArrow ABI-compatible for Spark + local Arrow conversions.
+    "numpy>=1.24,<2",
+    "pyarrow>=14.0.0,<17",
     # ── Utilities ────────────────────────────────────────────────────────────
     "python-dotenv>=1.0.0",
     "pypdf>=5.0.0",
