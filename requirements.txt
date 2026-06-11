@@ -1,7 +1,7 @@
 # Capital Market Risk Review — Python dependencies
 # Install with: pip install -r requirements.txt
 #
-# Python >= 3.10 required
+# Python >= 3.9 required
 
 # ── LangChain core ────────────────────────────────────────────────────────────
 langchain>=0.3.0
@@ -19,6 +19,9 @@ openai>=1.40.0
 # ── REST API (Azure Container Apps service layer) ────────────────────────────
 fastapi>=0.115.0
 uvicorn[standard]>=0.30.0
+
+# ── Batch ingestion/embedding (PySpark) ──────────────────────────────────────
+pyspark>=3.4.0
 
 # ── Environment / config ─────────────────────────────────────────────────────
 python-dotenv>=1.0.0
@@ -41,4 +44,3 @@ pypdf>=5.0.0
 
 # ── Dev / lint ────────────────────────────────────────────────────────────────
 # ruff>=0.8.0
-
