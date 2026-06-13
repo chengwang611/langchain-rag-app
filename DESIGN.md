@@ -79,13 +79,16 @@ The system is deliberately split into two independent LangGraph graphs:
 | Module | Responsibility |
 |---|---|
 | `models.py` | `RiskFinding` dataclass, `ReviewState` TypedDict (17 fields incl. `fund_id`, `report_date`, `source_files`) |
-| `ingest.py` | `ingest_node`, `embed_and_persist_node`, `retrieve_node`, `_FUND_DOCUMENT_STORE` |
-| `analyze.py` | LLM draft summary + structured JSON findings extraction via `gpt-4o-mini` |
-| `compliance_agent.py` | **Regulatory Compliance Agent** — Basel III/IV + XXX risk appetite tools |
-| `market_agent.py` | **Market Sensitivity Analysis Agent** — VaR delta, CVA exposure, RWA capital impact |
-| `escalation_agent.py` | **Risk Escalation Agent** — severity classification, Slack/email/ServiceNow |
-| `review.py` | HITL interrupt, decision routing, finalization |
-| `graph.py` | `build_ingestion_graph()`, `build_review_graph()`, `build_graph()` (alias) |
+| `ingest.py` | `ingest_node`, `embed_and_persist_node`, `_FUND_DOCUMENT_STORE` (legacy in-process fallback) |
+| `review_process/retrieval.py` | `retrieve_node` using embedding backends from `embedding_process` |
+| `review_process/hitl.py` | `human_review_node`, `route_after_review`, `finalize_node` |
+| `review_process/graph.py` | `build_review_graph()` assembly |
+| `review_process/analyze.py` | LLM draft summary + structured JSON findings extraction via `gpt-4o-mini` |
+| `review_process/compliance_agent.py` | **Regulatory Compliance Agent** — Basel III/IV + XXX risk appetite tools |
+| `review_process/market_agent.py` | **Market Sensitivity Analysis Agent** — VaR delta, CVA exposure, RWA capital impact |
+| `review_process/escalation_agent.py` | **Risk Escalation Agent** — severity classification, Slack/email/ServiceNow |
+| `review.py` | Backward-compatible HITL re-export shim |
+| `graph.py` | `build_ingestion_graph()`, review graph delegation, `build_graph()` (alias) |
 | `main.py` | Demo: batch ingestion of 3 funds × 2 dates, then review for FUND-001 |
 
 ---
@@ -176,20 +179,21 @@ embed_and_persist_node
 ---
 
 ### 3.7 Review Node Detail
-
-```
-retrieve_node
-  Input:  fund_id, query
-  Action: Load fund_chunks = _FUND_DOCUMENT_STORE[fund_id]
-          Build InMemoryVectorStore from fund_chunks only
-          similarity_search(query, k=8)
-          (EXTEND: PGVector filter={"fund_id": fund_id})
-  Output: retrieved (list[Document])
-
+ 
+ ```
+ retrieve_node
+   Input:  fund_id, query
+  Action: Load retrieval backend from review_process configuration
+          (REVIEW_VECTOR_BACKEND=auto|file|pgvector)
+          Read persisted chunks created by embedding_process
+          similarity_search(query, k=8) scoped by fund_id
+          Fallback: legacy in-process store only when auto mode has no file
+   Output: retrieved (list[Document])
+ 
 analyze_node → compliance_agent_node → market_sensitivity_agent_node
-           → escalation_agent_node → human_review_node → finalize_node
-  (same as v1 — see §3.8–3.11)
-```
+            → escalation_agent_node → human_review_node → finalize_node
+   (same as v1 — see §3.8–3.11)
+ ```
 
 ---
 
@@ -239,7 +243,7 @@ for _ in range(max_iterations):
 | `medium` | `#xxx-cm-risk-monitoring` | — | — | 5 business days |
 | `low` | `#xxx-cm-risk-log` | — | — | Log only |
 
-### 3.12 REST API Layer (`api.py`)
+### 3.12 REST API Layer (`review_process/api.py`)
 
 The pipeline is exposed as a FastAPI service. Each endpoint maps directly to a pipeline action:
 
@@ -254,7 +258,7 @@ The pipeline is exposed as a FastAPI service. Each endpoint maps directly to a p
 **Request / Response flow:**
 
 ```
-Client                              FastAPI (api.py)              LangGraph
+Client                     FastAPI (review_process/api.py)         LangGraph
   │                                       │                           │
   │  POST /review/start                   │                           │
   │  { fund_id, query }  ────────────────►│  build_review_graph()     │
@@ -358,7 +362,7 @@ def fund_risk_ingestion():
         graph.invoke({...})
 ```
 
-### 6.4 Real Slack / Email / ServiceNow (`escalation_agent.py`)
+### 6.4 Real Slack / Email / ServiceNow (`review_process/escalation_agent.py`)
 ```python
 # Slack
 from slack_sdk import WebClient
@@ -383,7 +387,8 @@ graph = build_review_graph(checkpointer=checkpointer)
 ### 6.8 Azure Container Apps Deployment
 
 **Infrastructure files added:**
-- `api.py` — FastAPI service with 5 endpoints
+- `review_process/api.py` — canonical FastAPI service with 5 endpoints
+- `api.py` — backward-compatible shim for previous import path
 - `Dockerfile` — multi-stage build, non-root user, HEALTHCHECK
 - `.github/workflows/deploy.yml` — CI/CD: build → push ACR → deploy Container Apps
 
@@ -446,10 +451,10 @@ az keyvault set-policy --name kv-risk-review --object-id $PRINCIPAL_ID --secret-
 | P0 | Add `RecordManager` deduplication in `embed_and_persist_node` | Platform Engineering |
 | P0 | Replace `MemorySaver` with `PostgresSaver` | Platform Engineering |
 | P0 | Wire Azure Key Vault in Container Apps for all secrets | Platform Engineering |
-| P1 | Add Azure AD / OAuth2 authentication to `api.py` | Platform Engineering |
-| P1 | Wire real Slack / email / ServiceNow in `escalation_agent.py` | Platform Engineering |
+| P1 | Add Azure AD / OAuth2 authentication to `review_process/api.py` | Platform Engineering |
+| P1 | Wire real Slack / email / ServiceNow in `review_process/escalation_agent.py` | Platform Engineering |
 | P1 | Connect Bloomberg BLPAPI for live market data | Quant Risk Engineering |
-| P1 | Add OSFI B-2 / B-10 rules to `compliance_agent.py` | Regulatory Affairs |
+| P1 | Add OSFI B-2 / B-10 rules to `review_process/compliance_agent.py` | Regulatory Affairs |
 | P1 | Add Pydantic validation of `findings_json` | Risk Technology |
 | P1 | Add reviewer identity + audit log in `finalize_node` | Risk Technology |
 | P2 | Add report_date TTL policy in `embed_and_persist_node` | Platform Engineering |
@@ -493,3 +498,4 @@ az keyvault set-policy --name kv-risk-review --object-id $PRINCIPAL_ID --secret-
 | 2026-06-05 | **Added Dockerfile** — multi-stage build, non-root user, HEALTHCHECK on `/health` |
 | 2026-06-05 | **Added GitHub Actions CI/CD** — build + push ACR + deploy Container Apps on master push |
 | 2026-06-05 | Chose Azure Container Apps over AKS — no k8s overhead, native HTTPS, auto-scale to 0 |
+| 2026-06-12 | Moved canonical API module to `review_process/api.py`; kept `api.py` as compatibility shim |

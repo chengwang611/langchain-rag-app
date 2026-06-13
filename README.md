@@ -34,13 +34,18 @@ START → retrieve → analyze → compliance_agent → market_sensitivity_agent
 src/capital_market_risk_review/
 ├── __init__.py           ← package marker
 ├── models.py             ← domain schemas (RiskFinding, ReviewState incl. fund_id)
-├── ingest.py             ← ingest_node, embed_and_persist_node, retrieve_node
-├── analyze.py            ← LLM risk analysis and findings extraction
-├── compliance_agent.py   ← Regulatory Compliance Agent (Basel III/IV + XXX limits)
-├── market_agent.py       ← Market Sensitivity Agent (VaR, CVA, RWA)
-├── escalation_agent.py   ← Risk Escalation Agent (Slack / email / ServiceNow)
-├── review.py             ← HITL pause, routing, and finalization
-├── graph.py              ← build_ingestion_graph() + build_review_graph()
+├── ingest.py             ← ingest_node, embed_and_persist_node
+├── review_process/
+│   ├── api.py            ← canonical FastAPI module (review + ingest endpoints)
+│   ├── analyze.py        ← canonical analyze_node implementation
+│   ├── compliance_agent.py  ← canonical compliance agent implementation
+│   ├── market_agent.py   ← canonical market sensitivity agent implementation
+│   ├── escalation_agent.py  ← canonical escalation agent implementation
+│   ├── retrieval.py      ← retrieve_node (reads persisted embeddings)
+│   ├── hitl.py           ← human_review_node, route_after_review, finalize_node
+│   └── graph.py          ← build_review_graph() assembly
+├── review.py             ← backward-compatible HITL re-exports
+├── graph.py              ← build_ingestion_graph() + review graph delegation
 ├── main.py               ← demo: batch ingestion of 3 funds + review for FUND-001
 ├── DESIGN.md             ← architecture and design documentation
 └── README.md             ← module-level readme
@@ -139,21 +144,21 @@ final = graph.invoke({"human_decision": "approve"}, config=config)
 
 ## Agent overview
 
-### 🔍 Regulatory Compliance Agent (`compliance_agent.py`)
+### 🔍 Regulatory Compliance Agent (`review_process/compliance_agent.py`)
 | Tool | Purpose |
 |---|---|
 | `check_basel_threshold` | Check observed metric against Basel III/IV threshold (BCBS 352, 325, 238, SR 11-7) |
 | `get_xxx_risk_appetite` | Retrieve XXX Capital Markets internal limits and warning thresholds |
 | `generate_remediation_recommendation` | Produce structured remediation action with owner, SLA, and policy reference |
 
-### 📊 Market Sensitivity Analysis Agent (`market_agent.py`)
+### 📊 Market Sensitivity Analysis Agent (`review_process/market_agent.py`)
 | Tool | Purpose |
 |---|---|
 | `calculate_var_delta` | 99%/10-day VaR, DV01, SVaR, and IMA capital charge per asset class |
 | `estimate_cva_exposure` | CVA via EPE × PD × LGD with market spread factor (BCBS 325) |
 | `calculate_rwa_impact` | RWA and Pillar 1 capital requirements under Basel III SA (BCBS 424) |
 
-### 🚨 Risk Escalation Agent (`escalation_agent.py`)
+### 🚨 Risk Escalation Agent (`review_process/escalation_agent.py`)
 | Tool | Purpose |
 |---|---|
 | `classify_findings_by_severity` | Count and bucket findings; determine if escalation is required |
@@ -175,7 +180,7 @@ final = graph.invoke({"human_decision": "approve"}, config=config)
 
 ## Deploying as an Azure Container Apps service
 
-The pipeline is exposed as a REST API via `api.py` (FastAPI) and packaged as a Docker container for deployment on Azure Container Apps.
+The pipeline is exposed as a REST API via `review_process/api.py` (FastAPI) and packaged as a Docker container for deployment on Azure Container Apps.
 
 ### API endpoints
 
@@ -193,9 +198,11 @@ Interactive Swagger UI available at `https://<app-url>/docs` once deployed.
 
 ```zsh
 pip install -r requirements.txt
-uvicorn capital_market_risk_review.api:app --reload --port 8000
+uvicorn capital_market_risk_review.review_process.api:app --reload --port 8000
 # Open http://localhost:8000/docs
 ```
+
+Backward-compatible module path `capital_market_risk_review.api:app` is still available as a shim.
 
 ### One-time Azure setup
 
@@ -298,10 +305,10 @@ az keyvault set-policy --name kv-risk-review \
 |---|---|
 | `models.py` | Add `user_id`, `confidence_score`, `escalation_level`, `report_date` range filter |
 | `ingest.py` | Swap `_FUND_DOCUMENT_STORE` → pgvector; add `RecordManager` for dedup; add PDF/Word loaders |
-| `analyze.py` | Swap gpt-4o-mini → gpt-4o; add Pydantic structured output; add self-critique |
-| `compliance_agent.py` | Connect Bloomberg Regulatory feed; add OSFI B-2/B-10; add FRTB SBM |
-| `market_agent.py` | Connect Bloomberg BLPAPI / Murex for live positions; add Greeks (DV01, CS01) |
-| `escalation_agent.py` | Wire real Slack SDK / SMTP / ServiceNow REST API; add PagerDuty / JIRA |
+| `review_process/analyze.py` | Swap gpt-4o-mini → gpt-4o; add Pydantic structured output; add self-critique |
+| `review_process/compliance_agent.py` | Connect Bloomberg Regulatory feed; add OSFI B-2/B-10; add FRTB SBM |
+| `review_process/market_agent.py` | Connect Bloomberg BLPAPI / Murex for live positions; add Greeks (DV01, CS01) |
+| `review_process/escalation_agent.py` | Wire real Slack SDK / SMTP / ServiceNow REST API; add PagerDuty / JIRA |
 | `review.py` | Add multi-tier approval chain; audit log to PostgreSQL; SLA timer |
 | `graph.py` | Add parallel branches; critique node; PDF report node; LangSmith tracing |
 | `main.py` | Add argparse for fund_id + file path; schedule with Airflow / cron |
