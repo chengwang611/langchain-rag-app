@@ -4,15 +4,13 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import List
-
-from langchain_core.documents import Document
 
 from ..embedding_process.vector_backend import (
     FileFundVectorStore,
     PGVectorFundStore,
     VectorStoreBackend,
 )
+from .models import ReviewState
 
 
 def _default_top_k() -> int:
@@ -23,11 +21,11 @@ def _default_top_k() -> int:
         return 8
 
 
-def _build_backend(backend_name: str) -> VectorStoreBackend | None:
+def _build_backend(backend_name: str) -> VectorStoreBackend:
     """Return review retrieval backend from runtime config.
 
     REVIEW_VECTOR_BACKEND values:
-    - auto (default): use file backend when file exists, else fallback to legacy store
+    - auto (default): use file backend when local store exists
     - file: force local file-backed retrieval
     - pgvector: force pgvector retrieval (placeholder implementation)
     """
@@ -45,9 +43,13 @@ def _build_backend(backend_name: str) -> VectorStoreBackend | None:
 
     if backend_name == "auto":
         path = os.getenv("REVIEW_FILE_BACKEND_PATH", ".local_data/fund_chunks.jsonl")
-        if Path(path).exists():
+        if not Path(path).exists():
+            print(
+                "[retrieve] no persisted embedding store found at "
+                f"{path}. Run embedding_process first or configure pgvector backend."
+            )
             return FileFundVectorStore(storage_path=path)
-        return None
+        return FileFundVectorStore(storage_path=path)
 
     raise ValueError(
         f"Unsupported REVIEW_VECTOR_BACKEND={backend_name!r}. "
@@ -55,33 +57,8 @@ def _build_backend(backend_name: str) -> VectorStoreBackend | None:
     )
 
 
-def _legacy_retrieve_from_ingest_store(state: dict, k: int) -> List[Document]:
-    """Compatibility fallback for in-process demo runs.
-
-    If the file backend is not present, this keeps the old behavior where
-    ingest and review happen in one Python process.
-    """
-    from langchain_core.vectorstores import InMemoryVectorStore
-    from langchain_openai import OpenAIEmbeddings
-
-    from ..ingest import _FUND_DOCUMENT_STORE
-
-    fund_id = state["fund_id"]
-    query = state["query"]
-
-    fund_chunks = _FUND_DOCUMENT_STORE.get(fund_id, [])
-    if not fund_chunks:
-        return []
-
-    vector_store = InMemoryVectorStore.from_documents(
-        fund_chunks,
-        OpenAIEmbeddings(model="text-embedding-3-small"),
-    )
-    return vector_store.similarity_search(query, k=k)
-
-
-def retrieve_node(state: dict) -> dict:
-    """Retrieve top-k chunks for the requested fund_id at review time."""
+def retrieve_node(state: ReviewState) -> dict:
+    """Retrieve top-k chunks for the requested fund_id from embedding_process store."""
     fund_id = state["fund_id"]
     query = state["query"]
     k = _default_top_k()
@@ -89,24 +66,13 @@ def retrieve_node(state: dict) -> dict:
     backend_name = os.getenv("REVIEW_VECTOR_BACKEND", "auto").strip().lower()
     backend = _build_backend(backend_name)
 
-    if backend is not None:
-        retrieved = backend.similarity_search(fund_id=fund_id, query=query, k=k)
-        if retrieved:
-            print(f"[retrieve] backend={backend_name} | fund_id={fund_id} | hits={len(retrieved)}")
-            return {**state, "retrieved": retrieved}
-
-        print(f"[retrieve] backend={backend_name} | fund_id={fund_id} | no hits")
-        return {**state, "retrieved": []}
-
-    # auto mode fallback when no persisted file exists yet.
-    retrieved = _legacy_retrieve_from_ingest_store(state, k)
+    retrieved = backend.similarity_search(fund_id=fund_id, query=query, k=k)
     if not retrieved:
         print(
-            "[retrieve] WARNING: no documents found. "
-            "Run embedding_process ingestion first, or set REVIEW_VECTOR_BACKEND=file "
-            "with REVIEW_FILE_BACKEND_PATH pointing to the persisted JSONL file."
+            f"[retrieve] backend={backend_name} | fund_id={fund_id} | no hits. "
+            "Ensure ingestion/embedding has persisted data for this fund_id."
         )
-        return {**state, "retrieved": []}
+        return {"retrieved": []}
 
-    print(f"[retrieve] backend=legacy-in-memory | fund_id={fund_id} | hits={len(retrieved)}")
-    return {**state, "retrieved": retrieved}
+    print(f"[retrieve] backend={backend_name} | fund_id={fund_id} | hits={len(retrieved)}")
+    return {"retrieved": retrieved}

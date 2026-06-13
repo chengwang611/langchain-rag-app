@@ -32,23 +32,21 @@ START → retrieve → analyze → compliance_agent → market_sensitivity_agent
 
 ```
 src/capital_market_risk_review/
-├── __init__.py           ← package marker
-├── models.py             ← domain schemas (RiskFinding, ReviewState incl. fund_id)
-├── ingest.py             ← ingest_node, embed_and_persist_node
-├── review_process/
-│   ├── api.py            ← canonical FastAPI module (review + ingest endpoints)
-│   ├── analyze.py        ← canonical analyze_node implementation
-│   ├── compliance_agent.py  ← canonical compliance agent implementation
-│   ├── market_agent.py   ← canonical market sensitivity agent implementation
-│   ├── escalation_agent.py  ← canonical escalation agent implementation
+├── __init__.py           ← package marker (canonical exports)
+├── embedding_process/    ← canonical batch ingestion/embedding pipeline
+├── review_process/       ← canonical review-time API, graph, nodes, and state
+│   ├── api.py            ← FastAPI review endpoints
+│   ├── graph.py          ← build_review_graph() assembly
+│   ├── models.py         ← canonical ReviewState / RiskFinding definitions
 │   ├── retrieval.py      ← retrieve_node (reads persisted embeddings)
-│   ├── hitl.py           ← human_review_node, route_after_review, finalize_node
-│   └── graph.py          ← build_review_graph() assembly
-├── review.py             ← backward-compatible HITL re-exports
-├── graph.py              ← build_ingestion_graph() + review graph delegation
-├── main.py               ← demo: batch ingestion of 3 funds + review for FUND-001
-├── DESIGN.md             ← architecture and design documentation
-└── README.md             ← module-level readme
+│   ├── analyze.py
+│   ├── compliance_agent.py
+│   ├── market_agent.py
+│   ├── escalation_agent.py
+│   ├── hitl.py
+│   └── main.py           ← local review demo runner
+├── experience.txt
+└── DESIGN.md
 ```
 
 ---
@@ -63,8 +61,8 @@ pip install -e .
 cp .env.example .env
 # Edit .env and set OPENAI_API_KEY
 
-# Run the demo (ingests 3 funds × 2 dates, then reviews FUND-001)
-python -m capital_market_risk_review.main
+# Run the local demo runner
+python -m capital_market_risk_review.review_process.main
 ```
 
 ---
@@ -108,23 +106,21 @@ START
 
 ## Usage in code
 
-### Pipeline 1 — Ingest a fund's daily report
-```python
-from capital_market_risk_review.graph import build_ingestion_graph
+### Pipeline 1 — Ingest a fund's daily reports (canonical batch path)
 
-graph = build_ingestion_graph()
-graph.invoke({
-    "fund_id": "FUND-001",
-    "report_date": "2026-06-05",
-    "source_files": ["FUND-001_daily_risk_report.pdf"],
-    "raw_docs": ["VaR limit utilization..."],
-    ...
-})
+```zsh
+python -m capital_market_risk_review.embedding_process.main \
+  --process-date 2026-06-05 \
+  --vector-backend file \
+  --file-backend-path .local_data/fund_chunks.jsonl \
+  --shuffle-partitions 2
 ```
+
+This persists fund-scoped chunks consumed later by `review_process.retrieval`.
 
 ### Pipeline 2 — Review a fund at query time
 ```python
-from capital_market_risk_review.graph import build_review_graph
+from capital_market_risk_review.review_process.graph import build_review_graph
 
 graph = build_review_graph()
 config = {"configurable": {"thread_id": "review-FUND-001-2026-06-05"}}
@@ -180,14 +176,14 @@ final = graph.invoke({"human_decision": "approve"}, config=config)
 
 ## Deploying as an Azure Container Apps service
 
-The pipeline is exposed as a REST API via `review_process/api.py` (FastAPI) and packaged as a Docker container for deployment on Azure Container Apps.
+The review pipeline is exposed as a REST API via `review_process/api.py` (FastAPI) and packaged as a Docker container for deployment on Azure Container Apps.
+Ingestion/embedding is run separately by `embedding_process` batch jobs (for example OCP Spark Operator + Airflow, or Databricks Workflows).
 
 ### API endpoints
 
 | Method | Path | Pipeline | Description |
 |---|---|---|---|
 | `GET` | `/health` | — | Liveness probe (used by Azure Container Apps) |
-| `POST` | `/ingest/{fund_id}` | Ingestion | Ingest documents for a fund (call hourly/daily) |
 | `POST` | `/review/start` | Review | Start a review — runs to HITL pause, returns `thread_id` |
 | `POST` | `/review/{thread_id}/resume` | Review | Resume with human decision (`approve`/`edit`/`reject`) |
 | `GET` | `/review/{thread_id}/status` | Review | Poll current review state |
@@ -202,7 +198,10 @@ uvicorn capital_market_risk_review.review_process.api:app --reload --port 8000
 # Open http://localhost:8000/docs
 ```
 
-Backward-compatible module path `capital_market_risk_review.api:app` is still available as a shim.
+Console script for the local review demo:
+```zsh
+risk-review-demo
+```
 
 ### One-time Azure setup
 
@@ -303,15 +302,15 @@ az keyvault set-policy --name kv-risk-review \
 
 | File | What to extend |
 |---|---|
-| `models.py` | Add `user_id`, `confidence_score`, `escalation_level`, `report_date` range filter |
-| `ingest.py` | Swap `_FUND_DOCUMENT_STORE` → pgvector; add `RecordManager` for dedup; add PDF/Word loaders |
+| `review_process/models.py` | Add `user_id`, `confidence_score`, `escalation_level`, `report_date` range filter |
+| `embedding_process/*` | Production ingestion/embedding pipeline and backend wiring |
 | `review_process/analyze.py` | Swap gpt-4o-mini → gpt-4o; add Pydantic structured output; add self-critique |
 | `review_process/compliance_agent.py` | Connect Bloomberg Regulatory feed; add OSFI B-2/B-10; add FRTB SBM |
 | `review_process/market_agent.py` | Connect Bloomberg BLPAPI / Murex for live positions; add Greeks (DV01, CS01) |
 | `review_process/escalation_agent.py` | Wire real Slack SDK / SMTP / ServiceNow REST API; add PagerDuty / JIRA |
-| `review.py` | Add multi-tier approval chain; audit log to PostgreSQL; SLA timer |
-| `graph.py` | Add parallel branches; critique node; PDF report node; LangSmith tracing |
-| `main.py` | Add argparse for fund_id + file path; schedule with Airflow / cron |
+| `review_process/hitl.py` | Add multi-tier approval chain; audit log to PostgreSQL; SLA timer |
+| `review_process/graph.py` | Add parallel branches; critique node; PDF report node; LangSmith tracing |
+| `review_process/main.py` | Add argparse for fund_id + file path; schedule with Airflow / cron |
 
 ---
 

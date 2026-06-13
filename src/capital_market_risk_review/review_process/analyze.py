@@ -5,7 +5,7 @@ from __future__ import annotations
 from langchain_core.messages import AIMessage, HumanMessage
 from langchain_openai import ChatOpenAI
 
-from ..models import ReviewState
+from .models import ReviewState
 
 
 llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
@@ -68,4 +68,3 @@ Query focus: {state['query']}
         "findings_json": findings_json,
         "messages": [AIMessage(content=draft_summary)],
     }
-

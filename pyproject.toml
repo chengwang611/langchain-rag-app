@@ -38,7 +38,7 @@ dev = [
 ]
 
 [project.scripts]
-risk-ingest = "capital_market_risk_review.main:main"
+risk-review-demo = "capital_market_risk_review.review_process.main:main"
 embedding-process = "capital_market_risk_review.embedding_process.main:main"
 rag-ingest = "rag_app.cli:ingest_main"
 rag-query = "rag_app.cli:query_main"

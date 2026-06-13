@@ -9,7 +9,7 @@ from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from langchain_core.tools import tool
 from langchain_openai import ChatOpenAI
 
-from ..models import ReviewState
+from .models import ReviewState
 
 
 llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
@@ -237,4 +237,3 @@ def market_sensitivity_agent_node(state: ReviewState) -> dict:
         "market_sensitivity_report": market_report,
         "messages": [AIMessage(content=f"[Market Sensitivity Agent]\n{market_report}")],
     }
-

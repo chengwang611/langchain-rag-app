@@ -9,7 +9,7 @@ from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from langchain_core.tools import tool
 from langchain_openai import ChatOpenAI
 
-from ..models import ReviewState
+from .models import ReviewState
 
 
 llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
@@ -235,4 +235,3 @@ def escalation_agent_node(state: ReviewState) -> dict:
         "escalation_required": escalation_required,
         "messages": [AIMessage(content=f"[Escalation Agent]\n{escalation_log_text}")],
     }
-

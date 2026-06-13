@@ -1,10 +1,8 @@
-"""FastAPI service layer for ingestion and review workflows.
+"""FastAPI service layer for review workflow.
 
 Canonical API module location is review_process.api.
-Backward-compatible shim remains at capital_market_risk_review.api.
 
 Endpoints:
-  POST /ingest/{fund_id}
   POST /review/start
   POST /review/{thread_id}/resume
   GET  /review/{thread_id}/status
@@ -19,32 +17,19 @@ from typing import Optional
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
-from ..graph import build_ingestion_graph
 from .graph import build_review_graph
+from .models import empty_review_state
 
 app = FastAPI(
     title="Capital Market Risk Review API",
     description=(
-        "Two-pipeline multi-agent LangGraph service for automated "
-        "capital market risk document analysis with HITL approval."
+        "Review-time multi-agent LangGraph service. "
+        "Ingestion/embedding is handled by embedding_process batch jobs."
     ),
     version="1.0.0",
 )
 
-_ingestion_graph = build_ingestion_graph()
 _review_graph = build_review_graph()
-
-
-class IngestRequest(BaseModel):
-    report_date: str
-    raw_docs: list[str]
-    source_files: list[str] = []
-
-
-class IngestResponse(BaseModel):
-    status: str
-    fund_id: str
-    chunks_ingested: str
 
 
 class ReviewStartRequest(BaseModel):
@@ -81,53 +66,9 @@ class StatusResponse(BaseModel):
     escalation_required: bool
 
 
-def _empty_state(fund_id: str = "") -> dict:
-    return {
-        "messages": [],
-        "fund_id": fund_id,
-        "report_date": None,
-        "source_files": [],
-        "raw_docs": [],
-        "query": "",
-        "chunks": [],
-        "retrieved": [],
-        "draft_summary": "",
-        "findings_json": "[]",
-        "compliance_report": None,
-        "market_sensitivity_report": None,
-        "escalation_log": [],
-        "escalation_required": False,
-        "human_decision": None,
-        "edited_summary": None,
-        "final_summary": None,
-    }
-
-
 @app.get("/health", tags=["ops"])
 def health():
     return {"status": "ok"}
-
-
-@app.post("/ingest/{fund_id}", response_model=IngestResponse, status_code=202, tags=["ingestion"])
-def ingest(fund_id: str, req: IngestRequest):
-    if not req.raw_docs:
-        raise HTTPException(status_code=422, detail="raw_docs must not be empty.")
-
-    state = {
-        **_empty_state(fund_id),
-        "report_date": req.report_date,
-        "source_files": req.source_files,
-        "raw_docs": req.raw_docs,
-    }
-
-    config = {"configurable": {"thread_id": f"ingest-{fund_id}-{req.report_date}"}}
-    _ingestion_graph.invoke(state, config=config)
-
-    return IngestResponse(
-        status="ingested",
-        fund_id=fund_id,
-        chunks_ingested="see server logs",
-    )
 
 
 @app.post("/review/start", response_model=ReviewStartResponse, tags=["review"])
@@ -136,7 +77,7 @@ def start_review(req: ReviewStartRequest):
     config = {"configurable": {"thread_id": thread_id}}
 
     state = {
-        **_empty_state(req.fund_id),
+        **empty_review_state(req.fund_id),
         "query": req.query,
     }
 
@@ -204,4 +145,3 @@ def get_status(thread_id: str):
         final_summary=values.get("final_summary"),
         escalation_required=values.get("escalation_required", False),
     )
-

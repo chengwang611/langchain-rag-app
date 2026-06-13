@@ -78,19 +78,13 @@ The system is deliberately split into two independent LangGraph graphs:
 
 | Module | Responsibility |
 |---|---|
-| `models.py` | `RiskFinding` dataclass, `ReviewState` TypedDict (17 fields incl. `fund_id`, `report_date`, `source_files`) |
-| `ingest.py` | `ingest_node`, `embed_and_persist_node`, `_FUND_DOCUMENT_STORE` (legacy in-process fallback) |
-| `review_process/retrieval.py` | `retrieve_node` using embedding backends from `embedding_process` |
+| `review_process/models.py` | **Canonical review schemas**: `RiskFinding`, `ReviewState`, `empty_review_state` |
+| `embedding_process/*` | **Canonical batch ingestion/embedding pipeline** (Spark-oriented, backend abstraction) |
+| `review_process/retrieval.py` | `retrieve_node` using embedding backends from `embedding_process` (backend-only path) |
 | `review_process/hitl.py` | `human_review_node`, `route_after_review`, `finalize_node` |
 | `review_process/graph.py` | `build_review_graph()` assembly |
-| `review_process/analyze.py` | LLM draft summary + structured JSON findings extraction via `gpt-4o-mini` |
-| `review_process/compliance_agent.py` | **Regulatory Compliance Agent** — Basel III/IV + XXX risk appetite tools |
-| `review_process/market_agent.py` | **Market Sensitivity Analysis Agent** — VaR delta, CVA exposure, RWA capital impact |
-| `review_process/escalation_agent.py` | **Risk Escalation Agent** — severity classification, Slack/email/ServiceNow |
-| `review.py` | Backward-compatible HITL re-export shim |
-| `graph.py` | `build_ingestion_graph()`, review graph delegation, `build_graph()` (alias) |
-| `main.py` | Demo: batch ingestion of 3 funds × 2 dates, then review for FUND-001 |
-
+| `review_process/main.py` | Local demo runner that bootstraps sample docs into file backend then runs review graph |
+| `review_process/api.py` | Canonical FastAPI review service module |
 ---
 
 ### 3.3 State Contract (`ReviewState`)
@@ -134,46 +128,42 @@ Document(
 )
 ```
 
-**At retrieve time** — strict filter by fund_id:
+**At retrieve time** — strict fund_id-scoped retrieval from embedding backends:
 ```python
-# Demo (module-level dict):
-fund_chunks = _FUND_DOCUMENT_STORE.get(fund_id, [])   # only this fund's chunks
-vector_store = InMemoryVectorStore.from_documents(fund_chunks, embeddings)
-
-# Production (pgvector):
-vector_store.similarity_search(query, k=8, filter={"fund_id": fund_id})
+# review_process/retrieval.py
+backend = _build_backend(os.getenv("REVIEW_VECTOR_BACKEND", "auto"))
+retrieved = backend.similarity_search(fund_id=fund_id, query=query, k=8)
 ```
+
+Review-time retrieval is intentionally decoupled from in-process ingestion state.
 
 Fund A's documents are **never visible** when reviewing Fund B.
 
 ---
 
-### 3.5 Persistent Store — Demo vs Production
+### 3.5 Persistent Store — Current vs Production Path
 
-| | Demo (current) | Production (EXTEND) |
+| | Current review path | Production target |
 |---|---|---|
-| Store | `_FUND_DOCUMENT_STORE: dict[str, list[Document]]` | `PGVector` / `Chroma` / Azure AI Search |
-| Persistence scope | Single process | Cross-process, durable |
-| Deduplication | None (re-run appends) | `RecordManager` with `cleanup="incremental"` |
-| fund_id filtering | Dict key lookup | `filter={"fund_id": fund_id}` on vector store |
-| Index size control | No TTL | Report date TTL: purge chunks older than N days |
+| Store used by `review_process/retrieval.py` | `FileFundVectorStore` (`.local_data/fund_chunks.jsonl`) or `PGVectorFundStore` | `PGVectorFundStore` |
+| Persistence scope | Cross-run local file (phase 1) | Cross-process, durable |
+| Deduplication | Not built into file backend | Add `RecordManager` with `cleanup="incremental"` |
+| fund_id filtering | Backend-level `similarity_search(fund_id=...)` | Same |
+| Index size control | Manual file management | Report date TTL / retention policy |
 
 ---
 
-### 3.6 Ingestion Node Detail
+### 3.6 Ingestion Path Detail
 
 ```
-ingest_node
-  Input:  raw_docs (list[str]), fund_id, report_date, source_files
-  Action: RecursiveCharacterTextSplitter (1200/200 overlap)
-          Tag each chunk: fund_id, report_date, source_file, source_id
-  Output: chunks (list[Document])
+embedding_process (canonical batch embedding path)
+  Input:  fund-scoped files (for example MinIO text files)
+  Action: Spark chunking + embedding + persistence through vector backend abstraction
+          (FileFundVectorStore phase 1; PGVectorFundStore target)
+  Output: persisted store consumed by review_process/retrieval.py
 
-embed_and_persist_node
-  Input:  chunks, fund_id
-  Action: Append chunks to _FUND_DOCUMENT_STORE[fund_id]
-          (EXTEND: PGVector.add_documents(chunks))
-  Output: {} (side effect only — chunks persisted)
+review_process/main.py (local demo helper)
+  Action: bootstrap sample documents into FileFundVectorStore for demo-only runs
 ```
 
 ---
@@ -187,7 +177,7 @@ embed_and_persist_node
           (REVIEW_VECTOR_BACKEND=auto|file|pgvector)
           Read persisted chunks created by embedding_process
           similarity_search(query, k=8) scoped by fund_id
-          Fallback: legacy in-process store only when auto mode has no file
+          Return empty retrieval list when store is missing or fund has no hits
    Output: retrieved (list[Document])
  
 analyze_node → compliance_agent_node → market_sensitivity_agent_node
@@ -245,12 +235,11 @@ for _ in range(max_iterations):
 
 ### 3.12 REST API Layer (`review_process/api.py`)
 
-The pipeline is exposed as a FastAPI service. Each endpoint maps directly to a pipeline action:
+The review pipeline is exposed as a FastAPI service. Ingestion/embedding is handled separately by `embedding_process` batch jobs.
 
 | Method | Path | Calls | Returns |
 |---|---|---|---|
-| `GET` | `/health` | — | `{"status": "ok"}` — Azure Container Apps liveness probe |
-| `POST` | `/ingest/{fund_id}` | `build_ingestion_graph().invoke()` | `202 Accepted` with ingestion status |
+| `GET` | `/health` | — | `{"status": "ok"}` — liveness probe |
 | `POST` | `/review/start` | `build_review_graph().invoke()` until HITL pause | `thread_id` + all agent outputs |
 | `POST` | `/review/{thread_id}/resume` | `build_review_graph().invoke(human_decision)` | `final_summary` |
 | `GET` | `/review/{thread_id}/status` | `review_graph.get_state()` | current `human_decision`, `final_summary`, `escalation_required` |
@@ -279,7 +268,7 @@ Client                     FastAPI (review_process/api.py)         LangGraph
   │◄── { final_summary }  ────────────────│◄── final state ───────────│
 ```
 
-**Pydantic models** (`IngestRequest`, `ReviewStartRequest`, `ResumeRequest`) validate all inputs before passing to LangGraph, preventing invalid state from entering the pipeline.
+**Pydantic models** (`ReviewStartRequest`, `ResumeRequest`) validate all inputs before passing to LangGraph, preventing invalid state from entering the pipeline.
 
 ---
 
@@ -287,10 +276,10 @@ Client                     FastAPI (review_process/api.py)         LangGraph
 
 | Decision | Choice | Rationale |
 |---|---|---|
-| Two separate graphs | `build_ingestion_graph` + `build_review_graph` | Decouples batch cadence from on-demand queries; independent scaling |
+| Two separate execution paths | `embedding_process` (batch) + `build_review_graph` (on-demand) | Decouples batch cadence from review requests; independent scaling |
 | fund_id tagging at ingest | Chunk metadata `fund_id` field | Enables vector store filter at retrieval — no cross-fund leakage |
-| Module-level dict store | `_FUND_DOCUMENT_STORE` | Zero-infra demo; swap point is a single function call |
-| Incremental append | `existing + chunks` per fund | Supports hourly runs accumulating historical context |
+| Phase-1 persistence | `FileFundVectorStore` | Zero-infra local persistence with deterministic behavior |
+| Upgrade target persistence | `PGVectorFundStore` | Durable, cross-process storage and scalable retrieval |
 | Agent pattern | ReAct tool-calling loop | Deterministic tool selection; auditable reasoning chain |
 | LLM | `gpt-4o-mini` | Cost-efficient for template; swap to `gpt-4o` for production |
 | Checkpointing | `MemorySaver` | In-process HITL; `EXTEND` to `SqliteSaver/PostgresSaver` |
@@ -306,8 +295,8 @@ Client                     FastAPI (review_process/api.py)         LangGraph
 
 | # | Gap | Impact | Mitigation |
 |---|---|---|---|
-| 1 | `_FUND_DOCUMENT_STORE` is in-process only | Data lost on restart | Replace with PGVector |
-| 2 | No deduplication in `embed_and_persist_node` | Duplicate chunks on re-run | Add `RecordManager` with `cleanup="incremental"` |
+| 1 | File backend is not enterprise durable | Local file constraints and operational risk | Replace with PGVector |
+| 2 | No deduplication in current file backend writes | Duplicate chunks on re-run | Add `RecordManager` with `cleanup="incremental"` |
 | 3 | No TTL on stored chunks | Index grows unbounded | Add report_date TTL policy |
 | 4 | Simulated Slack / email / ServiceNow | Notifications not delivered | Wire real API clients |
 | 5 | Market data is static / simulated | VaR/CVA figures not live | Connect Bloomberg BLPAPI |
@@ -320,7 +309,7 @@ Client                     FastAPI (review_process/api.py)         LangGraph
 
 ## 6. Production Extension Guide
 
-### 6.1 Replace Demo Store with PGVector (`ingest.py`)
+### 6.1 Replace File Backend with PGVector (`embedding_process/vector_backend.py`)
 ```python
 from langchain_postgres.vectorstores import PGVector
 import os
@@ -331,16 +320,16 @@ vector_store = PGVector(
     collection_name="fund_risk_docs",
 )
 
-# embed_and_persist_node:
+# add_documents path:
 vector_store.add_documents(chunks)
 
-# retrieve_node:
+# retrieval path:
 retrieved = vector_store.similarity_search(
     query, k=8, filter={"fund_id": fund_id}
 )
 ```
 
-### 6.2 Add Deduplication with RecordManager (`ingest.py`)
+### 6.2 Add Deduplication with RecordManager (`embedding_process/vector_backend.py`)
 ```python
 from langchain.indexes import SQLRecordManager, index
 
@@ -350,16 +339,17 @@ record_manager = SQLRecordManager(
 index(chunks, record_manager, vector_store, cleanup="incremental")
 ```
 
-### 6.3 Schedule Ingestion as Airflow DAG (`main.py`)
+### 6.3 Schedule Ingestion as Airflow DAG (`embedding_process/main.py`)
 ```python
 # airflow_dag.py
 from airflow.decorators import dag, task
-@dag(schedule="0 * * * *")   # hourly
+
+@dag(schedule="0 * * * *")
 def fund_risk_ingestion():
     @task
-    def ingest_fund(fund_id: str, report_date: str):
-        graph = build_ingestion_graph()
-        graph.invoke({...})
+    def run_embedding_process():
+        # trigger embedding_process.main with process date + backend args
+        ...
 ```
 
 ### 6.4 Real Slack / Email / ServiceNow (`review_process/escalation_agent.py`)
@@ -377,7 +367,7 @@ import requests
 requests.post(f"{SNOW_INSTANCE}/api/now/table/incident", json={...})
 ```
 
-### 6.5 Durable Checkpointing (`graph.py`)
+### 6.5 Durable Checkpointing (`review_process/graph.py`)
 ```python
 from langgraph.checkpoint.postgres import PostgresSaver
 checkpointer = PostgresSaver.from_conn_string(os.environ["POSTGRES_URL"])

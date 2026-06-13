@@ -8,7 +8,7 @@ from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from langchain_core.tools import tool
 from langchain_openai import ChatOpenAI
 
-from ..models import ReviewState
+from .models import ReviewState
 
 
 llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
@@ -220,4 +220,3 @@ def compliance_agent_node(state: ReviewState) -> dict:
         "compliance_report": compliance_report,
         "messages": [AIMessage(content=f"[Compliance Agent]\n{compliance_report}")],
     }
-
