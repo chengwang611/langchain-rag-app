@@ -295,10 +295,10 @@ Client                     FastAPI (review_process/api.py)         LangGraph
 | LLM | `gpt-4o-mini` | Cost-efficient for template; swap to `gpt-4o` for production |
 | Checkpointing | `MemorySaver` | In-process HITL; `EXTEND` to `SqliteSaver/PostgresSaver` |
 | API framework | FastAPI | Async, typed, auto-generates OpenAPI / Swagger docs |
-| Container runtime | Docker (multi-stage) | Slim image; non-root user per Azure Container Apps policy |
-| Deployment target | Azure Container Apps | Native HTTPS, auto-scale to 0, managed identity, no k8s overhead |
-| CI/CD | GitHub Actions | Build + push to ACR, deploy to Container Apps on push to master |
-| Secrets | Azure Key Vault + managed identity | No secrets in env vars or code; zero-trust approach |
+| Container runtime | Docker image + platform Spark runtime | Keeps one codebase while allowing Spark execution on OCP Spark Operator or Azure Databricks |
+| Deployment target | Embedding: Option A (OCP Spark Operator + Airflow + MinIO) or Option B (Azure Databricks + Workflows + MinIO); Review API: managed container service | Separates batch embedding deployment choices from review API hosting concerns |
+| CI/CD | GitHub Actions + platform release workflow | Build/test once, then promote to OCP SparkApplication path or Databricks Workflows job path |
+| Secrets | Platform-native secret management | Option A: OpenShift/Kubernetes Secret or Vault; Option B: Databricks Secret Scopes + Azure Key Vault |
 
 ---
 
@@ -384,118 +384,81 @@ checkpointer = PostgresSaver.from_conn_string(os.environ["POSTGRES_URL"])
 graph = build_review_graph(checkpointer=checkpointer)
 ```
 
-### 6.8 Azure Container Apps Deployment
+### 6.8 Deployment Solution Proposals (Embedding Pipeline)
 
-**Infrastructure files added:**
-- `review_process/api.py` — canonical FastAPI service with 5 endpoints
-- `api.py` — backward-compatible shim for previous import path
-- `Dockerfile` — multi-stage build, non-root user, HEALTHCHECK
-- `.github/workflows/deploy.yml` — CI/CD: build → push ACR → deploy Container Apps
+This section proposes two deployment options for the `embedding_process` pipeline when source risk reports arrive as text files in MinIO (S3-compatible).
 
-**One-time setup:**
-```zsh
-RESOURCE_GROUP=rg-risk-review
-LOCATION=australiaeast
-ACR_NAME=acrcmrisk
-APP_NAME=api-risk-review
-APP_ENV=env-risk-review
+#### Option A — OCP Spark Operator + Airflow DAG (primary on-platform path)
 
-az group create --name $RESOURCE_GROUP --location $LOCATION
-az acr create --resource-group $RESOURCE_GROUP --name $ACR_NAME --sku Basic --admin-enabled true
-az containerapp env create --name $APP_ENV --resource-group $RESOURCE_GROUP --location $LOCATION
-```
+**Target architecture**
+- Source: MinIO bucket/prefix containing fund-scoped text files (for example by `fund_id` and `report_date` partitions).
+- Compute: `embedding_process` runs as a Spark application on OpenShift via Spark Operator.
+- Orchestration: Airflow DAG triggers the Spark job on a daily/hourly schedule.
+- Storage: embeddings persisted to the configured backend (`in-memory` for phase 1; `file`/`pgvector` next).
 
-**Build and deploy:**
-```zsh
-az acr build --registry $ACR_NAME --image capital-market-risk-review:latest .
+**Execution flow**
+1. Airflow scheduler starts DAG on cadence (daily or hourly).
+2. `validate_inputs` task checks MinIO data availability, path conventions, and minimum file quality gates.
+3. `run_embedding_spark_app` submits/monitors SparkApplication in OCP.
+4. Spark job reads MinIO text files, chunks content, generates embeddings, persists by `fund_id`.
+5. `validate_outputs` task checks expected counts/quality metrics (documents read, chunks created, funds processed).
+6. `alert_on_failure_or_anomaly` sends alert if any validation or Spark stage fails.
 
-ACR_SERVER=$(az acr show --name $ACR_NAME --query loginServer -o tsv)
-ACR_USER=$(az acr credential show --name $ACR_NAME --query username -o tsv)
-ACR_PASS=$(az acr credential show --name $ACR_NAME --query passwords[0].value -o tsv)
+**Recommended DAG task groups**
+- `precheck`: source presence, schema/metadata checks, duplicate file guard.
+- `compute`: Spark submit + completion monitor + retry policy.
+- `postcheck`: output count reconciliation, sample retrieval smoke check.
+- `notify`: success/failure notifications and escalation routing.
 
-az containerapp create \
-  --name $APP_NAME --resource-group $RESOURCE_GROUP --environment $APP_ENV \
-  --image $ACR_SERVER/capital-market-risk-review:latest \
-  --registry-server $ACR_SERVER --registry-username $ACR_USER --registry-password $ACR_PASS \
-  --target-port 8000 --ingress external \
-  --min-replicas 1 --max-replicas 5 \
-  --secrets openai-key=<YOUR_OPENAI_API_KEY> \
-  --env-vars OPENAI_API_KEY=secretref:openai-key
-```
+**Operational considerations**
+- Use idempotent ingestion semantics (partition by run window and fund; avoid duplicate embedding writes).
+- Capture run metadata (run_id, fund_id count, input file count, output chunk count) for auditability.
+- Keep Airflow retries separate from Spark retries to avoid duplicate side effects.
+- Add SLA and late-data handling (skip, backfill, or reprocess policy).
 
-**GitHub Actions CI/CD:**
-```zsh
-# Create service principal — store JSON as GitHub secret AZURE_CREDENTIALS
-az ad sp create-for-rbac --name "github-actions-risk-review" --role contributor \
-  --scopes /subscriptions/<SUB_ID>/resourceGroups/rg-risk-review --sdk-auth
-```
+**Advantages**
+- Best fit when core platform and operations are OCP/Airflow-centric.
+- Full control over cluster, networking, and compliance boundaries.
+- Clear integration path to existing platform governance.
 
-**Azure Key Vault (production secrets):**
-```zsh
-az keyvault create --name kv-risk-review --resource-group $RESOURCE_GROUP --location $LOCATION
-az keyvault secret set --vault-name kv-risk-review --name OPENAI-API-KEY --value "<key>"
+**Trade-offs**
+- More platform engineering overhead (operator lifecycle, Spark runtime management).
+- More components to operate (Airflow + OCP + object storage + observability stack).
 
-az containerapp identity assign --name $APP_NAME --resource-group $RESOURCE_GROUP --system-assigned
-PRINCIPAL_ID=$(az containerapp show --name $APP_NAME --resource-group $RESOURCE_GROUP \
-  --query identity.principalId -o tsv)
-az keyvault set-policy --name kv-risk-review --object-id $PRINCIPAL_ID --secret-permissions get list
-```
+#### Option B — Azure Databricks + Databricks Workflows (managed Spark path)
 
----
+**Target architecture**
+- Source: same MinIO S3-compatible bucket/prefix.
+- Compute: `embedding_process` PySpark code runs as a Databricks job.
+- Orchestration: Databricks Workflows scheduled daily (or hourly if required).
+- Storage: embeddings persisted through the same backend abstraction to keep review pipeline unchanged.
 
-## 7. Production Roadmap
+**Execution flow**
+1. Databricks Workflow starts job on schedule.
+2. Job validates MinIO connectivity and required input prefixes for the run window.
+3. Job executes chunking + embedding + persistence by `fund_id`.
+4. Post-run notebook/task validates output metrics and data quality thresholds.
+5. Workflow sends alerts on failure, timeout, or validation drift.
 
-| Priority | Item | Owner |
-|---|---|---|
-| P0 | Replace `_FUND_DOCUMENT_STORE` with PGVector | Platform Engineering |
-| P0 | Add `RecordManager` deduplication in `embed_and_persist_node` | Platform Engineering |
-| P0 | Replace `MemorySaver` with `PostgresSaver` | Platform Engineering |
-| P0 | Wire Azure Key Vault in Container Apps for all secrets | Platform Engineering |
-| P1 | Add Azure AD / OAuth2 authentication to `review_process/api.py` | Platform Engineering |
-| P1 | Wire real Slack / email / ServiceNow in `review_process/escalation_agent.py` | Platform Engineering |
-| P1 | Connect Bloomberg BLPAPI for live market data | Quant Risk Engineering |
-| P1 | Add OSFI B-2 / B-10 rules to `review_process/compliance_agent.py` | Regulatory Affairs |
-| P1 | Add Pydantic validation of `findings_json` | Risk Technology |
-| P1 | Add reviewer identity + audit log in `finalize_node` | Risk Technology |
-| P2 | Add report_date TTL policy in `embed_and_persist_node` | Platform Engineering |
-| P2 | Add Airflow / cron scheduling for ingestion pipeline | Platform Engineering |
-| P2 | Add LangSmith tracing for end-to-end observability | Platform Engineering |
-| P3 | Add parallel graph branches for compliance + market agents | Risk Technology |
-| P3 | Add PDF/Word report generation node after `finalize` | Risk Technology |
+**Operational considerations**
+- Ensure secure network path from Databricks to MinIO endpoint (private connectivity preferred).
+- Configure S3A endpoint/auth/cert trust for MinIO compatibility.
+- Keep backend persistence contract identical so `review_process/retrieval.py` does not change by platform.
+- Use workflow retries + alert policies with explicit timeout and concurrency controls.
 
----
+**Advantages**
+- Faster operational onboarding for Spark workloads (managed runtime/jobs/monitoring).
+- Less Kubernetes/Spark-operator maintenance burden.
+- Strong productivity for data engineering teams.
 
-## 8. Testing Strategy
+**Trade-offs**
+- Higher vendor coupling to Databricks ecosystem.
+- Cross-platform connectivity/security setup may be non-trivial if MinIO remains in OCP.
+- Cost profile may be less predictable without strict job/cluster policies.
 
-| Layer | What to test | How |
-|---|---|---|
-| Unit | `ingest_node` — chunk metadata tagging | Assert `fund_id` + `report_date` in every chunk's metadata |
-| Unit | `embed_and_persist_node` — fund isolation | Assert `_FUND_DOCUMENT_STORE["FUND-A"]` does not contain FUND-B chunks |
-| Unit | `retrieve_node` — fund_id filter | Ingest 2 funds, query each, assert no cross-fund documents returned |
-| Unit | `embed_and_persist_node` — incremental append | Run twice, assert total chunk count doubles |
-| Unit | Each tool function | pytest with known input/output pairs |
-| Integration | Full ingestion pipeline | `build_ingestion_graph().invoke({...})` end-to-end |
-| Integration | Full review pipeline with mocked LLM | `FakeListChatModel` |
-| Agent | Compliance agent tool selection | Assert tools called for high/critical findings |
-| HITL | Pause/resume correctness | Invoke twice with same `thread_id` |
-| Escalation | Severity routing matrix | Assert correct channel/email/ServiceNow per severity |
+#### Decision Guidance
 
----
+Choose **Option A** when platform ownership, compliance boundary, and operational standard are centered on OCP + Airflow.
+Choose **Option B** when minimizing Spark operational overhead and accelerating data pipeline delivery is the higher priority.
 
-## 9. Decision Log
-
-| Date | Decision |
-|---|---|
-| 2026-06-05 | Initial template — RAG pipeline + HITL |
-| 2026-06-05 | Added Regulatory Compliance, Market Sensitivity, Escalation agents |
-| 2026-06-05 | Replaced all firm name references with anonymised placeholder (XXX) |
-| 2026-06-05 | **Split into two separate pipelines** — ingestion (batch) vs review (on-demand) |
-| 2026-06-05 | Added `fund_id` to chunk metadata at ingest time; filter at retrieve time |
-| 2026-06-05 | Added `embed_and_persist_node` — separates embedding cost from retrieval |
-| 2026-06-05 | Module-level `_FUND_DOCUMENT_STORE` as demo persistence with pgvector swap hooks |
-| 2026-06-05 | Added `build_ingestion_graph()` to `graph.py`; `build_review_graph()` starts from `retrieve_node` |
-| 2026-06-05 | **Added FastAPI service layer** (`api.py`) — 5 endpoints mapping pipelines to REST |
-| 2026-06-05 | **Added Dockerfile** — multi-stage build, non-root user, HEALTHCHECK on `/health` |
-| 2026-06-05 | **Added GitHub Actions CI/CD** — build + push ACR + deploy Container Apps on master push |
-| 2026-06-05 | Chose Azure Container Apps over AKS — no k8s overhead, native HTTPS, auto-scale to 0 |
-| 2026-06-12 | Moved canonical API module to `review_process/api.py`; kept `api.py` as compatibility shim |
+Both options are compatible with the current code layout because `embedding_process` and review-time retrieval are already separated by backend abstraction.
