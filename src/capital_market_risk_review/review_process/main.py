@@ -12,14 +12,29 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+import sys
 
 from dotenv import load_dotenv
 from langchain_core.documents import Document
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
-from ..embedding_process.vector_backend import FileFundVectorStore
-from .graph import build_review_graph
-from .models import empty_review_state
+# Support both execution styles:
+# 1) python -m capital_market_risk_review.review_process.main
+# 2) python src/capital_market_risk_review/review_process/main.py
+if __package__ in (None, ""):
+    repo_root = Path(__file__).resolve().parents[3]
+    src_root = repo_root / "src"
+    for p in (str(src_root), str(repo_root)):
+        if p not in sys.path:
+            sys.path.insert(0, p)
+
+    from capital_market_risk_review.embedding_process.vector_backend import FileFundVectorStore
+    from capital_market_risk_review.review_process.graph import build_review_graph
+    from capital_market_risk_review.review_process.models import empty_review_state
+else:
+    from ..embedding_process.vector_backend import FileFundVectorStore
+    from .graph import build_review_graph
+    from .models import empty_review_state
 
 load_dotenv()
 
