@@ -66,6 +66,7 @@ def _resolve_python_exec() -> str:
 def _build_spark(app_name: str, shuffle_partitions: int) -> SparkSession:
     """Create a standard Spark session for batch ingestion jobs."""
     python_exec = _resolve_python_exec()
+    print(f"[embedding-process] using Python interpreter: {python_exec}")
 
     # Keep Spark worker/driver interpreter aligned to avoid version mismatch.
     os.environ.setdefault("PYSPARK_DRIVER_PYTHON", python_exec)
