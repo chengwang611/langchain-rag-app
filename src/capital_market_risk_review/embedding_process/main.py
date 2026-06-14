@@ -25,13 +25,15 @@ from pyspark.sql import functions as F
 # Support both execution styles:
 # 1) python -m capital_market_risk_review.embedding_process.main
 # 2) python src/capital_market_risk_review/embedding_process/main.py
-try:
-    from .spark_pipeline import EmbeddingPipelineConfig, SparkEmbeddingPipeline
-    from .vector_backend import FileFundVectorStore, InMemoryFundVectorStore, PGVectorFundStore
-except ImportError:
-    project_src = Path(__file__).resolve().parents[2]
-    if str(project_src) not in sys.path:
-        sys.path.insert(0, str(project_src))
+if __package__ in (None, ""):
+    # Running as a script: add both repo root and src root so absolute
+    # package imports resolve consistently across local shells and IDE runners.
+    repo_root = Path(__file__).resolve().parents[3]
+    src_root = repo_root / "src"
+    for p in (str(src_root), str(repo_root)):
+        if p not in sys.path:
+            sys.path.insert(0, p)
+
     from capital_market_risk_review.embedding_process.spark_pipeline import (
         EmbeddingPipelineConfig,
         SparkEmbeddingPipeline,
@@ -41,6 +43,9 @@ except ImportError:
         InMemoryFundVectorStore,
         PGVectorFundStore,
     )
+else:
+    from .spark_pipeline import EmbeddingPipelineConfig, SparkEmbeddingPipeline
+    from .vector_backend import FileFundVectorStore, InMemoryFundVectorStore, PGVectorFundStore
 
 
 def _resolve_python_exec() -> str:
