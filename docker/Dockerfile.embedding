@@ -1,0 +1,31 @@
+FROM python:3.11-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PYTHONPATH=/app/src \
+    SPARK_LOCAL_IP=127.0.0.1 \
+    REVIEW_FILE_BACKEND_PATH=/data/fund_chunks.jsonl
+
+WORKDIR /app
+
+# Java runtime is required by PySpark.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends openjdk-17-jre-headless ca-certificates tini \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY requirements.txt ./
+RUN pip install --upgrade pip \
+    && pip install -r requirements.txt
+
+COPY src/ ./src/
+
+RUN useradd -m -u 10001 appuser \
+    && mkdir -p /data \
+    && chown -R appuser:appuser /app /data
+
+USER appuser
+
+ENTRYPOINT ["tini", "--", "python", "-m", "capital_market_risk_review.embedding_process.main"]
+CMD ["--vector-backend", "file", "--file-backend-path", "/data/fund_chunks.jsonl"]
+

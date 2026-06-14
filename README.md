@@ -174,10 +174,48 @@ final = graph.invoke({"human_decision": "approve"}, config=config)
 
 ---
 
-## Deploying as an Azure Container Apps service
+## Deployment strategy (separate images)
 
-The review pipeline is exposed as a REST API via `review_process/api.py` (FastAPI) and packaged as a Docker container for deployment on Azure Container Apps.
-Ingestion/embedding is run separately by `embedding_process` batch jobs (for example OCP Spark Operator + Airflow, or Databricks Workflows).
+Use two images built from separate Dockerfiles:
+
+1. `review-api` image: continuous FastAPI service (`review_process.api`)
+2. `embedding-job` image: scheduled batch runner (`embedding_process.main`)
+
+This separation gives cleaner release cadence, smaller API runtime surface, and simpler ops on OCP/AKS.
+Detailed container runbook is available in `docker/README.md`.
+
+### Build images
+
+```zsh
+docker build -f docker/Dockerfile.review -t capital-market-risk-review-api:latest .
+docker build -f docker/Dockerfile.embedding -t capital-market-risk-embedding:latest .
+```
+
+### Local run (review API)
+
+```zsh
+docker run --rm -p 8000:8000 \
+  -e OPENAI_API_KEY="<your_key>" \
+  capital-market-risk-review-api:latest
+```
+
+### Local run (embedding batch)
+
+```zsh
+docker run --rm \
+  -e OPENAI_API_KEY="<your_key>" \
+  -v /Users/chengwang/PycharmProjects/langchain-rag-app/.local_data:/data \
+  capital-market-risk-embedding:latest \
+  --process-date 2026-06-14 \
+  --vector-backend file \
+  --file-backend-path /data/fund_chunks.jsonl \
+  --shuffle-partitions 2
+```
+
+## Deploying review API on Azure Container Apps
+
+The review pipeline is exposed as a REST API via `review_process/api.py` and deployed from the `review-api` image.
+Ingestion/embedding should run as a scheduled batch workload using the separate `embedding-job` image.
 
 ### API endpoints
 
@@ -226,25 +264,26 @@ az containerapp env create \
   --location $LOCATION
 ```
 
-### Build and deploy manually
+### Build and deploy manually (review API image)
 
 ```zsh
-# Build and push image to ACR in one step
+# Build and push review API image to ACR
 az acr build \
   --registry $ACR_NAME \
-  --image capital-market-risk-review:latest .
+  --image capital-market-risk-review-api:latest \
+  -f docker/Dockerfile.review .
 
 # Retrieve ACR credentials
 ACR_SERVER=$(az acr show --name $ACR_NAME --query loginServer -o tsv)
 ACR_USER=$(az acr credential show --name $ACR_NAME --query username -o tsv)
 ACR_PASS=$(az acr credential show --name $ACR_NAME --query passwords[0].value -o tsv)
 
-# Create and deploy the Container App
+# Create and deploy the Container App (review API)
 az containerapp create \
   --name $APP_NAME \
   --resource-group $RESOURCE_GROUP \
   --environment $APP_ENV \
-  --image $ACR_SERVER/capital-market-risk-review:latest \
+  --image $ACR_SERVER/capital-market-risk-review-api:latest \
   --registry-server $ACR_SERVER \
   --registry-username $ACR_USER \
   --registry-password $ACR_PASS \
@@ -260,40 +299,20 @@ az containerapp show \
   --query properties.configuration.ingress.fqdn -o tsv
 ```
 
-### CI/CD — GitHub Actions (auto-deploy on push to master)
+### Deploy embedding batch image (scheduler-driven)
 
-The workflow at `.github/workflows/deploy.yml` automates build + deploy on every push to `master`.
+Use your scheduler platform to run the `embedding-job` image:
+- Airflow: KubernetesPodOperator / Spark submit wrapper
+- Databricks: container job/task with daily schedule
+- OCP/AKS: CronJob or Spark operator wrapper
 
-```zsh
-# Create a service principal and store output as GitHub secret: AZURE_CREDENTIALS
-az ad sp create-for-rbac \
-  --name "github-actions-risk-review" \
-  --role contributor \
-  --scopes /subscriptions/<SUB_ID>/resourceGroups/rg-risk-review \
-  --sdk-auth
-```
-
-Push to `master` → GitHub Actions builds a new image tagged with the commit SHA → deploys to Container Apps.
-
-### Secure secrets with Azure Key Vault (production)
+Build command:
 
 ```zsh
-az keyvault create --name kv-risk-review \
-  --resource-group $RESOURCE_GROUP --location $LOCATION
-
-az keyvault secret set --vault-name kv-risk-review \
-  --name OPENAI-API-KEY --value "<your-key>"
-
-# Grant Container App managed identity access to Key Vault
-az containerapp identity assign \
-  --name $APP_NAME --resource-group $RESOURCE_GROUP --system-assigned
-
-PRINCIPAL_ID=$(az containerapp show \
-  --name $APP_NAME --resource-group $RESOURCE_GROUP \
-  --query identity.principalId -o tsv)
-
-az keyvault set-policy --name kv-risk-review \
-  --object-id $PRINCIPAL_ID --secret-permissions get list
+az acr build \
+  --registry $ACR_NAME \
+  --image capital-market-risk-embedding:latest \
+  -f docker/Dockerfile.embedding .
 ```
 
 ---

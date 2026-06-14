@@ -1,0 +1,65 @@
+# Project Timeline — capital_market_risk_review
+
+## Scope baseline
+Current scope includes:
+- Scheduled ingestion/embedding pipeline (`embedding_process`)
+- Continuous review API pipeline (`review_process`)
+- Fund-scoped retrieval (`fund_id` isolation)
+- HITL pause/resume review workflow
+- Two-container deployment model (`review-api` + `embedding-job`)
+
+## Estimated timeline (requirements -> design -> implementation -> deployment)
+
+### 1) Requirements and discovery
+- Small/medium enterprise: **2-4 weeks**
+- Large bank (governance-heavy): **4-8 weeks**
+
+Activities:
+- Business requirement clarification
+- Data source and access definition
+- Security/compliance constraints
+- NFRs (latency, availability, auditability)
+
+### 2) Solution design
+- Small/medium enterprise: **2-4 weeks**
+- Large bank: **4-6 weeks**
+
+Activities:
+- Two-pipeline architecture and state contracts
+- API contracts and integration boundaries
+- Storage and retrieval strategy
+- Deployment model and operational controls
+
+### 3) Implementation
+- Small/medium enterprise: **8-14 weeks**
+- Large bank: **12-20 weeks**
+
+Activities:
+- Embedding batch pipeline implementation
+- Review API and multi-agent workflow implementation
+- HITL and resume logic
+- Containerization and environment wiring
+
+### 4) Testing, hardening, and deployment readiness
+- Small/medium enterprise: **4-8 weeks**
+- Large bank: **8-14 weeks**
+
+Activities:
+- Integration/UAT
+- Reliability and performance validation
+- Security hardening and runbooks
+- Production deployment pipeline and staged rollout
+
+## Total duration estimate
+For the current `capital_market_risk_review` scope:
+- Lean delivery: **~4-6 months**
+- Most realistic enterprise path: **~6-9 months**
+- Governance-heavy bank path: **~9-12 months**
+
+## Main schedule drivers
+- Data/security approvals
+- Platform/network dependencies across environments
+- Model risk and audit control requirements
+- Team size and seniority
+- Production readiness definition (MVP vs full control framework)
+
