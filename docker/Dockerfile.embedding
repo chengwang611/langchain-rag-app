@@ -16,7 +16,9 @@ RUN apt-get update \
 
 COPY requirements.txt ./
 RUN pip install --upgrade pip \
-    && pip install -r requirements.txt
+    && pip install -r requirements.txt \
+    # PGVector dependencies (optional — file backend works without these)
+    && pip install langchain-postgres psycopg[binary]
 
 COPY src/ ./src/
 

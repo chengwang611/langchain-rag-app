@@ -25,6 +25,11 @@ dependencies = [
     # Keep NumPy/PyArrow ABI-compatible for Spark + local Arrow conversions.
     "numpy>=1.24,<2",
     "pyarrow>=14.0.0,<17",
+    # ── PGVector (production vector store) ───────────────────────────────────
+    # langchain-postgres provides the PGVector integration; psycopg is the
+    # PostgreSQL driver. Both are optional — file backend works without them.
+    "langchain-postgres>=0.0.14",
+    "psycopg[binary]>=3.2.0",
     # ── Utilities ────────────────────────────────────────────────────────────
     "python-dotenv>=1.0.0",
     "pypdf>=5.0.0",

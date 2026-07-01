@@ -2,10 +2,20 @@
 
 Phase 1:
 - InMemoryFundVectorStore is used for local validation and rapid iteration.
+- FileFundVectorStore provides persistence without external databases.
 
-Future:
-- PGVectorFundStore can be implemented without changing the Spark pipeline
-  orchestration logic.
+Phase 2 (current):
+- PGVectorFundStore is the production backend using PostgreSQL + pgvector.
+  It provides persistent, scalable vector storage with fund_id-scoped retrieval.
+
+Usage:
+  # File backend (local dev, no external deps)
+  backend = FileFundVectorStore(storage_path=".local_data/fund_chunks.jsonl")
+
+  # PGVector backend (production)
+  backend = PGVectorFundStore(
+      connection_string="postgresql+psycopg://user:pass@host:5432/db"
+  )
 """
 
 from __future__ import annotations
@@ -15,11 +25,19 @@ from dataclasses import dataclass, field
 import json
 from pathlib import Path
 import re
-from typing import Dict, Iterable, List, Protocol
+from typing import Dict, Iterable, List, Optional, Protocol
 
 from langchain_core.documents import Document
 from langchain_core.vectorstores import InMemoryVectorStore
 from langchain_openai import OpenAIEmbeddings
+
+# PGVector is an optional dependency — file backend works without it.
+try:
+    from langchain_postgres import PGVector as LangChainPGVector
+
+    _PGVECTOR_AVAILABLE = True
+except ImportError:
+    _PGVECTOR_AVAILABLE = False
 
 
 class VectorStoreBackend(Protocol):
@@ -84,32 +102,82 @@ class InMemoryFundVectorStore:
 
 @dataclass
 class PGVectorFundStore:
-    """Production backend placeholder.
+    """Production PGVector backend for persistent, scalable vector storage.
 
-    This class intentionally leaves implementation as explicit TODO so migration
-    path is clear while phase 1 stays in-memory.
+    Uses langchain-postgres PGVector with fund_id metadata filtering.
+    Each chunk is stored with fund_id in metadata for scoped retrieval.
 
-    EXTEND suggestion (minimal implementation path):
-    1) Install langchain-postgres + psycopg.
-    2) Initialize PGVector with collection_name="fund_risk_docs".
-    3) In add_documents(), call vector_store.add_documents(documents).
-    4) In similarity_search(), call vector_store.similarity_search(
-         query, k=k, filter={"fund_id": fund_id}
-       ).
-    5) Add idempotency with RecordManager or deterministic chunk_id metadata.
+    Requires:
+      pip install langchain-postgres psycopg[binary]
+
+    Connection string format:
+      postgresql+psycopg://user:password@host:5432/database
+
+    Example:
+      store = PGVectorFundStore(
+          connection_string="postgresql+psycopg://risk_user:risk_pass@localhost:5432/risk_review"
+      )
+      store.add_documents(docs)
+      results = store.similarity_search(fund_id="FUND-001", query="VaR breach", k=8)
     """
 
     connection_string: str
     collection_name: str = "fund_risk_docs"
+    embedding_model: str = "text-embedding-3-small"
+    _vector_store: Optional["LangChainPGVector"] = field(default=None, init=False)
+
+    def _get_store(self) -> "LangChainPGVector":
+        """Lazy-initialize the PGVector connection.
+
+        The store is created once and reused across calls to avoid
+        connection overhead on every add/query operation.
+        """
+        if self._vector_store is None:
+            if not _PGVECTOR_AVAILABLE:
+                raise ImportError(
+                    "PGVector backend requires langchain-postgres and psycopg.\n"
+                    "Install with: pip install langchain-postgres psycopg[binary]"
+                )
+            embeddings = OpenAIEmbeddings(model=self.embedding_model)
+            self._vector_store = LangChainPGVector(
+                embeddings=embeddings,
+                collection_name=self.collection_name,
+                connection=self.connection_string,
+            )
+        return self._vector_store
 
     def add_documents(self, documents: Iterable[Document]) -> int:
-        raise NotImplementedError("PGVector backend not implemented in phase 1.")
+        """Persist a batch of chunk documents to PostgreSQL/pgvector."""
+        docs = list(documents)
+        if not docs:
+            return 0
+        store = self._get_store()
+        store.add_documents(docs)
+        return len(docs)
 
     def similarity_search(self, fund_id: str, query: str, k: int = 8) -> List[Document]:
-        raise NotImplementedError("PGVector backend not implemented in phase 1.")
+        """Retrieve top-k chunks for a specific fund using metadata filtering.
+
+        The filter uses PGVector's metadata JSONB query syntax to scope
+        retrieval to a single fund_id, ensuring Fund A's documents never
+        pollute Fund B's results.
+        """
+        store = self._get_store()
+        return store.similarity_search(
+            query,
+            k=k,
+            filter={"fund_id": {"$eq": fund_id}},
+        )
 
     def total_documents(self) -> int:
-        raise NotImplementedError("PGVector backend not implemented in phase 1.")
+        """Return total stored chunk count across all funds.
+
+        Note: PGVector does not expose a direct document count through its
+        standard API. This returns -1 as a sentinel value. For production
+        monitoring, add a separate metadata table or use SQLAlchemy to
+        query the underlying langchain_pg_collection directly.
+        """
+        return -1
 
 
 @dataclass

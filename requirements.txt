@@ -35,9 +35,11 @@ python-dotenv>=1.0.0
 langchain-chroma>=0.2.0
 pypdf>=5.0.0
 
-# ── Production vector store (EXTEND: uncomment when replacing InMemoryVectorStore)
-# langchain-postgres>=0.0.12
-# psycopg[binary]>=3.1.0
+# ── PGVector (production vector store) ────────────────────────────────────────
+# langchain-postgres provides the PGVector integration; psycopg is the
+# PostgreSQL driver. Both are optional — file backend works without them.
+langchain-postgres>=0.0.14
+psycopg[binary]>=3.2.0
 
 # ── Production notification integrations (EXTEND: uncomment when wiring agents)
 # slack-sdk>=3.27.0

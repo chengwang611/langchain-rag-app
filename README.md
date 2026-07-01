@@ -171,6 +171,59 @@ final = graph.invoke({"human_decision": "approve"}, config=config)
 | `OPENAI_API_KEY` | — | Required |
 | `OPENAI_MODEL` | `gpt-4o-mini` | Chat model for analysis and agents |
 | `OPENAI_EMBEDDING_MODEL` | `text-embedding-3-small` | Embeddings for ingestion and retrieval |
+| `REVIEW_VECTOR_BACKEND` | `auto` | Vector store: `auto`, `file`, or `pgvector` |
+| `REVIEW_FILE_BACKEND_PATH` | `.local_data/fund_chunks.jsonl` | Path for file-backed vector store |
+| `PGVECTOR_CONNECTION_STRING` | — | Required when `REVIEW_VECTOR_BACKEND=pgvector` |
+
+---
+
+## PGVector (production vector store)
+
+The project supports two vector backends. The **file backend** is the default for local development. The **PGVector backend** provides persistent, scalable storage using PostgreSQL with the pgvector extension.
+
+### Quick start with PGVector (local)
+
+```zsh
+# 1. Start PostgreSQL with pgvector
+docker compose -f docker/docker-compose.yml up -d
+
+# 2. Install dependencies
+pip install langchain-postgres psycopg[binary]
+
+# 3. Run ingestion with PGVector
+python -m capital_market_risk_review.embedding_process.main \
+  --process-date 2026-06-10 \
+  --vector-backend pgvector
+
+# 4. Run review with PGVector
+PGVECTOR_CONNECTION_STRING="postgresql+psycopg://risk_user:risk_pass@localhost:5432/risk_review" \
+REVIEW_VECTOR_BACKEND=pgvector \
+python -m capital_market_risk_review.review_process.main
+```
+
+### Connection string format
+
+```
+postgresql+psycopg://<user>:<password>@<host>:5432/<database>
+```
+
+### Backend comparison
+
+| Feature | File backend | PGVector backend |
+|---|---|---|
+| **Persistence** | ✅ JSONL file on disk | ✅ PostgreSQL table |
+| **Semantic search** | ❌ Token overlap only | ✅ Real vector similarity |
+| **Multi-process safe** | ❌ No | ✅ Yes |
+| **Requires external DB** | ❌ No | ✅ PostgreSQL + pgvector |
+| **Best for** | Local dev, demos | Production, multi-user |
+
+### Switching between backends
+
+Set the `REVIEW_VECTOR_BACKEND` environment variable:
+
+- `auto` (default) — uses file backend if the JSONL file exists
+- `file` — forces file-backed retrieval
+- `pgvector` — forces PGVector retrieval (requires `PGVECTOR_CONNECTION_STRING`)
 
 ---
 

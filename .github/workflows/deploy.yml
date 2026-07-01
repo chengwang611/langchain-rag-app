@@ -70,7 +70,9 @@ jobs:
           az containerapp update \
             --name ${{ env.APP_NAME }} \
             --resource-group ${{ env.RESOURCE_GROUP }} \
-            --image ${{ env.ACR_NAME }}.azurecr.io/${{ env.REVIEW_IMAGE_NAME }}:${{ github.sha }}
+            --image ${{ env.ACR_NAME }}.azurecr.io/${{ env.REVIEW_IMAGE_NAME }}:${{ github.sha }} \
+            --set-env-vars "PGVECTOR_CONNECTION_STRING=${{ secrets.PGVECTOR_CONNECTION_STRING }}" \
+            --set-env-vars "REVIEW_VECTOR_BACKEND=pgvector"
 
       - name: Get app URL
         run: |

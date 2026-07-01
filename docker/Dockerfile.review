@@ -18,7 +18,9 @@ RUN apt-get update \
 COPY requirements.txt ./
 RUN pip install --upgrade pip \
     && pip install -r requirements.txt \
-    && pip install "uvicorn[standard]>=0.30.0" "fastapi>=0.115.0"
+    && pip install "uvicorn[standard]>=0.30.0" "fastapi>=0.115.0" \
+    # PGVector dependencies (optional — file backend works without these)
+    && pip install langchain-postgres psycopg[binary]
 
 COPY src/ ./src/
 
