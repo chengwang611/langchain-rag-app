@@ -1,8 +1,15 @@
 """PySpark ingestion + chunking + embedding orchestration.
 
 This module is built for daily Airflow triggering over high document volumes.
-For phase 1, vectors are persisted to an in-memory backend; backend abstraction
-allows a later swap to PGVector without changing Spark job control flow.
+The backend abstraction (VectorStoreBackend protocol) allows transparent
+switching between driver-local stores (file, in-memory) and external databases
+(PGVector) without changing the Spark pipeline logic.
+
+Write strategy is selected automatically based on the backend:
+- Driver-local backends (file, in-memory): use toLocalIterator() to collect
+  data to the driver before writing.
+- External database backends (PGVector): use foreachPartition() to write
+  in parallel from executor tasks.
 """
 
 from __future__ import annotations
@@ -132,27 +139,17 @@ class SparkEmbeddingPipeline:
             )
         return docs
 
-    def run(self, spark: SparkSession, source_df: DataFrame) -> dict:
-        """Execute end-to-end chunking and persistence.
+    def _write_via_driver(self, chunks_df: DataFrame) -> int:
+        """Collect chunks to driver and write via backend.add_documents().
 
-        Note: phase 1 in-memory backend persists in driver process only.
-        For very large jobs, this is intentionally a stepping stone.
+        Used for driver-local backends (file, in-memory) that cannot be
+        accessed from executor tasks. Data is collected in streaming fashion
+        using toLocalIterator() and persisted in batches to avoid holding
+        all chunks in driver memory at once.
 
-        EXTEND:
-        - Move persistence into a scalable sink (PGVector) and avoid driver-side
-          materialization by writing chunks partition-wise.
-        - Add checkpointing/resume semantics for long-running Spark jobs.
+        This is the original phase 1 strategy — simple, deterministic,
+        and suitable for local validation and small-to-medium datasets.
         """
-        self.validate_input_schema(source_df)
-        chunks_df = self.build_chunks_df(source_df).cache()
-
-        total_docs = source_df.count()
-        total_chunks = chunks_df.count()
-        distinct_funds = chunks_df.select("fund_id").distinct().count()
-
-        # Phase 1: collect in streaming fashion on driver and persist in batches.
-        # This keeps code simple and deterministic for local validation.
-        # EXTEND: replace toLocalIterator with partition writes to PGVector.
         persisted = 0
         batch: List = []
         batch_size = 1000
@@ -163,6 +160,65 @@ class SparkEmbeddingPipeline:
                 batch = []
         if batch:
             persisted += self.backend.add_documents(self._to_documents(batch))
+        return persisted
+
+    def _write_via_partitions(self, chunks_df: DataFrame) -> int:
+        """Write chunks in parallel from each Spark partition.
+
+        Used for external database backends (PGVector) that can be connected
+        to directly from executor tasks. Each partition opens its own backend
+        connection and writes its chunk batch independently.
+
+        This strategy:
+        - Avoids collecting all data to the driver (scales to any dataset size)
+        - Writes in parallel across all available Spark executors
+        - Requires the backend to be serializable or reconstructible on executors
+        """
+        backend = self.backend
+        to_documents = self._to_documents
+
+        def write_partition(rows_iter):
+            batch = list(rows_iter)
+            if not batch:
+                return
+            backend.add_documents(to_documents(batch))
+
+        chunks_df.foreachPartition(write_partition)
+
+        # foreachPartition doesn't return a count, so estimate from source.
+        return chunks_df.count()
+
+    def run(self, spark: SparkSession, source_df: DataFrame) -> dict:
+        """Execute end-to-end chunking and persistence.
+
+        Write strategy is selected automatically:
+        - Driver-local backends (file, in-memory): toLocalIterator()
+        - External database backends (PGVector): foreachPartition()
+
+        EXTEND:
+        - Add checkpointing/resume semantics for long-running Spark jobs.
+        - Add quality filters (min text length, language detection).
+        - Add deduplication by (fund_id, document_hash).
+        """
+        self.validate_input_schema(source_df)
+        chunks_df = self.build_chunks_df(source_df).cache()
+
+        total_docs = source_df.count()
+        total_chunks = chunks_df.count()
+        distinct_funds = chunks_df.select("fund_id").distinct().count()
+
+        if self.backend.requires_driver_local_write:
+            print(
+                f"[spark-pipeline] backend requires driver-local write "
+                f"({type(self.backend).__name__}) — using toLocalIterator()"
+            )
+            persisted = self._write_via_driver(chunks_df)
+        else:
+            print(
+                f"[spark-pipeline] backend supports distributed write "
+                f"({type(self.backend).__name__}) — using foreachPartition()"
+            )
+            persisted = self._write_via_partitions(chunks_df)
 
         return {
             "documents_read": total_docs,

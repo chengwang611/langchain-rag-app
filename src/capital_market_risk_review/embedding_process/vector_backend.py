@@ -45,11 +45,28 @@ class VectorStoreBackend(Protocol):
 
     Any backend implementation must support ingest and per-fund retrieval.
 
+    The `requires_driver_local_write` flag tells the Spark pipeline whether
+    this backend needs data collected to the driver (toLocalIterator) or
+    can be written in parallel from executor tasks (foreachPartition).
+
+    - File/InMemory backends → driver_local_write = True
+    - PGVector backend      → driver_local_write = False
+
     EXTEND:
     - Add delete_by_fund_id() for retention policies.
     - Add upsert semantics keyed by chunk_id to support idempotent ingestion.
     - Add count_by_fund_id() for monitoring dashboards.
     """
+
+    @property
+    def requires_driver_local_write(self) -> bool:
+        """If True, Spark must collect data to the driver before writing.
+
+        Backends that store data in driver-local memory (dict, file) must
+        return True. Backends that connect to an external database from
+        executor tasks (PGVector) must return False.
+        """
+        ...
 
     def add_documents(self, documents: Iterable[Document]) -> int:
         """Persist a batch of chunk documents and return number persisted."""
@@ -76,6 +93,11 @@ class InMemoryFundVectorStore:
 
     embedding_model: str = "text-embedding-3-small"
     _documents_by_fund: Dict[str, List[Document]] = field(default_factory=dict)
+
+    @property
+    def requires_driver_local_write(self) -> bool:
+        """InMemory backend stores data in driver-local memory."""
+        return True
 
     def add_documents(self, documents: Iterable[Document]) -> int:
         count = 0
@@ -125,6 +147,11 @@ class PGVectorFundStore:
     collection_name: str = "fund_risk_docs"
     embedding_model: str = "text-embedding-3-small"
     _vector_store: Optional["LangChainPGVector"] = field(default=None, init=False)
+
+    @property
+    def requires_driver_local_write(self) -> bool:
+        """PGVector connects to an external database — can write from executors."""
+        return False
 
     def _get_store(self) -> "LangChainPGVector":
         """Lazy-initialize the PGVector connection.
@@ -191,6 +218,11 @@ class FileFundVectorStore:
     storage_path: str = ".local_data/fund_chunks.jsonl"
     _documents_by_fund: Dict[str, List[Document]] = field(default_factory=dict)
     _loaded: bool = False
+
+    @property
+    def requires_driver_local_write(self) -> bool:
+        """File backend writes to a local JSONL file on the driver."""
+        return True
 
     def _ensure_loaded(self) -> None:
         if self._loaded:
