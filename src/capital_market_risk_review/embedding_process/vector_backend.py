@@ -182,6 +182,7 @@ class PGVectorFundStore:
         store.add_documents(docs)
         return len(docs)
 
+
     def similarity_search(self, fund_id: str, query: str, k: int = 8) -> List[Document]:
         """Retrieve top-k chunks for a specific fund using metadata filtering.
 
