@@ -158,13 +158,32 @@ Fund A's documents are **never visible** when reviewing Fund B.
 ```
 embedding_process (canonical batch embedding path)
   Input:  fund-scoped files (for example MinIO text files)
-  Action: Spark chunking + embedding + persistence through vector backend abstraction
+  Action: Spark semantic chunking + embedding + persistence through vector backend abstraction
           (FileFundVectorStore phase 1; PGVectorFundStore target)
   Output: persisted store consumed by review_process/retrieval.py
 
 review_process/main.py (local demo helper)
   Action: bootstrap sample documents into FileFundVectorStore for demo-only runs
 ```
+
+#### 3.6.1 Chunking Strategy Design Decision
+
+The ingestion pipeline uses a semantic recursive splitter in `embedding_process/spark_pipeline.py` instead of fixed-width character windows.
+
+| Concern | Decision |
+|---|---|
+| Split boundaries | Prefer section breaks, Markdown headings, paragraphs, lines, sentences, clauses, words, then character fallback |
+| Budget unit | Treat `chunk_size` and `chunk_overlap` as approximate token budgets through a lightweight tokenizer estimate |
+| Defaults | `chunk_size=600`, `chunk_overlap=100` approximate tokens |
+| Context preservation | Use overlap and preserve inferred `section_title` metadata for retrieval attribution |
+| Spark compatibility | Keep chunking inside the existing Spark UDF contract and explode one output row per chunk |
+| Guardrails | Reject non-positive chunk size, negative overlap, and overlap greater than or equal to chunk size |
+
+**Rationale:** capital-market risk reports often contain dense clauses, bullet lists, section headings, and regulatory references. Recursive semantic splitting keeps related risk context together better than raw character windows, while approximate token budgeting aligns chunks more closely with embedding and LLM context constraints.
+
+**Metadata added per chunk:**
+- `section_title` — best-effort heading inferred from the chunk or carried forward from the prior chunk.
+- `token_estimate` — lightweight token count estimate for auditability and future tuning.
 
 ---
 
@@ -278,6 +297,7 @@ Client                     FastAPI (review_process/api.py)         LangGraph
 |---|---|---|
 | Two separate execution paths | `embedding_process` (batch) + `build_review_graph` (on-demand) | Decouples batch cadence from review requests; independent scaling |
 | fund_id tagging at ingest | Chunk metadata `fund_id` field | Enables vector store filter at retrieval — no cross-fund leakage |
+| Semantic chunking | `RecursiveCharacterTextSplitter` with approximate token length and section metadata | Preserves risk narrative boundaries better than fixed character windows and improves retrieval attribution |
 | Phase-1 persistence | `FileFundVectorStore` | Zero-infra local persistence with deterministic behavior |
 | Upgrade target persistence | `PGVectorFundStore` | Durable, cross-process storage and scalable retrieval |
 | Agent pattern | ReAct tool-calling loop | Deterministic tool selection; auditable reasoning chain |
@@ -304,6 +324,7 @@ Client                     FastAPI (review_process/api.py)         LangGraph
 | 7 | Findings are LLM-generated JSON text | Schema may drift | Add `RiskFinding.model_validate_json()` |
 | 8 | `MemorySaver` lost on restart | HITL checkpoint not durable | Replace with `PostgresSaver` |
 | 9 | Basel thresholds hardcoded | Rules become stale | Connect Bloomberg Regulatory |
+| 10 | Token counts are lightweight estimates | Counts may differ from a specific embedding tokenizer | Replace `_estimate_tokens()` with model-specific tokenizer if strict budgets are required |
 
 ---
 

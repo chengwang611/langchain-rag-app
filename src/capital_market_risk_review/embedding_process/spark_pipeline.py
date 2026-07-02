@@ -14,10 +14,12 @@ Write strategy is selected automatically based on the backend:
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from typing import Iterable, List
 
 from langchain_core.documents import Document
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 from pyspark.sql import DataFrame, SparkSession
 from pyspark.sql import functions as F
 from pyspark.sql import types as T
@@ -31,38 +33,111 @@ _CHUNK_SCHEMA = T.ArrayType(
         [
             T.StructField("chunk_index", T.IntegerType(), nullable=False),
             T.StructField("chunk_text", T.StringType(), nullable=False),
+            T.StructField("section_title", T.StringType(), nullable=True),
+            T.StructField("token_estimate", T.IntegerType(), nullable=False),
         ]
     )
 )
 
 
-def _chunk_text(text: str, chunk_size: int, chunk_overlap: int) -> List[dict]:
-    """Chunk a single document text into overlapping windows.
+_SECTION_HEADING_RE = re.compile(
+    r"^\s*(?:#{1,6}\s+|(?:section\s+)?\d+(?:\.\d+)*[.)]?\s+|[A-Z][A-Z0-9 /&(),:;\-]{8,})"
+)
+_TOKEN_RE = re.compile(r"\w+|[^\w\s]", re.UNICODE)
 
-    EXTEND:
-    - Replace with sentence-aware chunking for cleaner semantic boundaries.
-    - Use token-aware splitters if targeting strict token budgets.
+
+def _normalize_text(text: str) -> str:
+    """Normalize whitespace while preserving paragraph and heading boundaries."""
+    normalized = text.replace("\r\n", "\n").replace("\r", "\n")
+    normalized = re.sub(r"[ \t]+", " ", normalized)
+    normalized = re.sub(r"\n{3,}", "\n\n", normalized)
+    return normalized.strip()
+
+
+def _estimate_tokens(text: str) -> int:
+    """Estimate token count without binding Spark executors to a model tokenizer package."""
+    return len(_TOKEN_RE.findall(text))
+
+
+def _length_function(text: str) -> int:
+    """Length function used by the splitter; approximates model-token budget."""
+    return _estimate_tokens(text)
+
+
+def _infer_section_title(chunk: str, previous_section: str | None = None) -> str | None:
+    """Infer the most relevant heading visible in a chunk."""
+    for line in chunk.splitlines():
+        candidate = line.strip().strip("#").strip()
+        if candidate and len(candidate) <= 140 and _SECTION_HEADING_RE.match(line):
+            return candidate
+    return previous_section
+
+
+def _chunk_text(text: str, chunk_size: int, chunk_overlap: int) -> List[dict]:
+    """Chunk a single document into semantic, overlap-preserving windows.
+
+    The splitter prefers larger document boundaries first (section breaks,
+    paragraphs, sentences, words) before falling back to characters. Chunk size
+    and overlap are interpreted as approximate token budgets through
+    ``_length_function`` so retrieval chunks better align with embedding/LLM
+    context limits than raw character windows.
     """
-    if not text:
+    normalized = _normalize_text(text or "")
+    if not normalized:
         return []
 
+    splitter = RecursiveCharacterTextSplitter(
+        chunk_size=chunk_size,
+        chunk_overlap=chunk_overlap,
+        length_function=_length_function,
+        separators=[
+            "\n## ",
+            "\n# ",
+            "\n\n",
+            "\n",
+            ". ",
+            "; ",
+            ", ",
+            " ",
+            "",
+        ],
+        keep_separator=True,
+        strip_whitespace=True,
+    )
+
     chunks: List[dict] = []
-    step = max(1, chunk_size - chunk_overlap)
-    idx = 0
-    chunk_idx = 0
-    while idx < len(text):
-        window = text[idx : idx + chunk_size].strip()
-        if window:
-            chunks.append({"chunk_index": chunk_idx, "chunk_text": window})
-            chunk_idx += 1
-        idx += step
+    current_section: str | None = None
+    for chunk_text in splitter.split_text(normalized):
+        cleaned = chunk_text.strip()
+        if not cleaned:
+            continue
+        current_section = _infer_section_title(cleaned, current_section)
+        chunks.append(
+            {
+                "chunk_index": len(chunks),
+                "chunk_text": cleaned,
+                "section_title": current_section,
+                "token_estimate": _estimate_tokens(cleaned),
+            }
+        )
     return chunks
 
 
 @dataclass
 class EmbeddingPipelineConfig:
-    chunk_size: int = 1200
-    chunk_overlap: int = 200
+    # Approximate token budget, not raw characters. 600 tokens is a balanced
+    # default for capital-market risk narratives: enough context for coherent
+    # clauses/tables while keeping retrieval focused.
+    chunk_size: int = 600
+    chunk_overlap: int = 100
+
+    def __post_init__(self) -> None:
+        if self.chunk_size <= 0:
+            raise ValueError("chunk_size must be positive")
+        if self.chunk_overlap < 0:
+            raise ValueError("chunk_overlap must be non-negative")
+        if self.chunk_overlap >= self.chunk_size:
+            raise ValueError("chunk_overlap must be smaller than chunk_size")
 
 
 class SparkEmbeddingPipeline:
@@ -96,7 +171,7 @@ class SparkEmbeddingPipeline:
             raise ValueError(f"Missing required columns: {sorted(missing)}")
 
     def build_chunks_df(self, df: DataFrame) -> DataFrame:
-        """Return an exploded chunk DataFrame with one row per text chunk."""
+        """Return an exploded chunk DataFrame with one row per semantic text chunk."""
         chunk_udf = F.udf(
             lambda x: _chunk_text(
                 text=x,
@@ -116,6 +191,8 @@ class SparkEmbeddingPipeline:
                 F.col("source_file"),
                 F.col("chunk.chunk_index").alias("chunk_index"),
                 F.col("chunk.chunk_text").alias("chunk_text"),
+                F.col("chunk.section_title").alias("section_title"),
+                F.col("chunk.token_estimate").alias("token_estimate"),
             )
         )
 
@@ -132,6 +209,8 @@ class SparkEmbeddingPipeline:
                         "report_date": row.report_date,
                         "source_file": row.source_file,
                         "chunk_index": row.chunk_index,
+                        "section_title": row.section_title,
+                        "token_estimate": row.token_estimate,
                         "chunk_id": chunk_id,
                         "source_id": chunk_id,
                     },
