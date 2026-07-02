@@ -163,7 +163,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--vector-backend",
-        default="in-memory",
+        default="file",
         choices=["in-memory", "file", "pgvector"],
         help="Vector store backend implementation.",
     )
