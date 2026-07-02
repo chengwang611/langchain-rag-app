@@ -172,8 +172,18 @@ def parse_args() -> argparse.Namespace:
         default=".local_data/fund_chunks.jsonl",
         help="Local JSONL path used when --vector-backend file.",
     )
-    parser.add_argument("--chunk-size", type=int, default=1200)
-    parser.add_argument("--chunk-overlap", type=int, default=200)
+    parser.add_argument(
+        "--chunk-size",
+        type=int,
+        default=600,
+        help="Approximate token budget per semantic chunk.",
+    )
+    parser.add_argument(
+        "--chunk-overlap",
+        type=int,
+        default=100,
+        help="Approximate token overlap between adjacent semantic chunks.",
+    )
     parser.add_argument("--spark-app-name", default="risk-embedding-process")
     parser.add_argument("--shuffle-partitions", type=int, default=200)
     return parser.parse_args()
