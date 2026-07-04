@@ -264,12 +264,23 @@ class FileFundVectorStore:
         return Counter(tokens)
 
     def add_documents(self, documents: Iterable[Document]) -> int:
-        self._ensure_loaded()
+        """Persist documents to JSONL file only.
+
+        This method is called by the Spark ingestion pipeline, which is a
+        short-lived batch process. Documents are written to disk only —
+        there is no need to hold them in memory because:
+        - The Spark process exits after ingestion completes
+        - The in-memory index (_documents_by_fund) is only needed by the
+          long-running Review pipeline (FastAPI) for similarity_search()
+        - Loading all historical documents into memory on every ingestion
+          run wastes driver memory and adds startup latency
+
+        The Review pipeline loads the index from file on first access via
+        _ensure_loaded() when similarity_search() is called.
+        """
         rows: List[dict] = []
         count = 0
         for doc in documents:
-            fund_id = str(doc.metadata.get("fund_id", "UNKNOWN"))
-            self._documents_by_fund.setdefault(fund_id, []).append(doc)
             rows.append({"page_content": doc.page_content, "metadata": doc.metadata})
             count += 1
 

@@ -483,3 +483,133 @@ Choose **Option A** when platform ownership, compliance boundary, and operationa
 Choose **Option B** when minimizing Spark operational overhead and accelerating data pipeline delivery is the higher priority.
 
 Both options are compatible with the current code layout because `embedding_process` and review-time retrieval are already separated by backend abstraction.
+
+---
+
+## 7. Production Roadmap — Business Logic Gaps
+
+This section documents the business features required to take the current implementation from a functional demo to a production-grade capital market risk review system used by a tier-1 bank.
+
+### 7.1 Priority Matrix
+
+| Priority | Feature | Effort | Impact | Section |
+|---|---|---|---|---|
+| **P0** | Immutable audit trail | Medium | Regulatory compliance | 7.2 |
+| **P0** | Multi-jurisdiction regulatory rules | Medium | Correctness for global banks | 7.3 |
+| **P0** | RBAC + SSO (Azure AD) | Medium | Security & access control | 7.8 |
+| **P1** | Live market data feeds (Bloomberg) | Large | Accuracy of VaR/CVA | 7.4 |
+| **P1** | Finding lifecycle management | Medium | Operational workflow | 7.5 |
+| **P1** | SLA tracking + escalation | Medium | Regulatory deadlines | 7.5 |
+| **P2** | Board reporting (PDF generation) | Small | Stakeholder communication | 7.9 |
+| **P2** | Stress testing scenarios | Large | Risk completeness | 7.6 |
+| **P3** | Climate risk (NGFS scenarios) | Large | Emerging regulation | 7.6 |
+| **P3** | CCAR / DFAST (US regulatory stress) | Very Large | US-specific compliance | 7.6 |
+
+### 7.2 Regulatory & Compliance
+
+| TODO | Description | Current State | Target |
+|---|---|---|---|
+| **Multi-jurisdiction rule engine** | Support OSFI (Canada), PRA (UK), ECB (EU), MAS (Singapore), APRA (Australia) rule sets | Single `BASEL_THRESHOLDS` dict | `JURISDICTION_RULES` dict with per-regulator thresholds, reporting frequencies, and filing formats |
+| **Regulatory filing generation** | Auto-generate OSFI B-2, SEC 10-K, PRA FSA047, ECB COREP formatted reports | JSON output only | XBRL, PDF, or XML filing format per jurisdiction |
+| **Regulatory calendar** | Track filing deadlines per jurisdiction with penalty alerts | Not implemented | Calendar-aware scheduling with automated deadline tracking |
+| **Immutable audit trail** | Append-only log with digital signatures for regulatory compliance | No persistence of review history | `AuditEntry` table: `(timestamp, user, action, before_state, after_state, digital_signature)` |
+| **Model risk governance (SR 11-7)** | Full model inventory, validation status, approval workflow | Basic threshold check | Model inventory with validation dates, owner, status, and re-validation scheduling |
+
+### 7.3 Risk Data Feeds
+
+| TODO | Description | Current State | Target |
+|---|---|---|---|
+| **Bloomberg data feed** | Real-time market data via Bloomberg B-PIPE or SAPI | `SIMULATED_MARKET_DATA` dict | `MarketDataService` with Bloomberg integration |
+| **Multi-vendor fallback** | Fallback chain: Bloomberg → Refinitiv → cached last-known | Single simulated source | Abstract `DataFeed` interface with fallback logic |
+| **Market data validation** | Anomaly detection, stale data alerts, outlier rejection | No validation | Statistical checks (z-score, moving average deviation) |
+| **Internal risk system integration** | Connect to Murex, Calypso, Algo Risk for position data | Not implemented | REST/SOAP adapters for each internal system |
+| **Real-time FX feed** | Live FX rates for CVA calculations | Hardcoded USD/CAD | Real-time feed from Bloomberg or internal treasury |
+
+### 7.4 Workflow & Approval
+
+| TODO | Description | Current State | Target |
+|---|---|---|---|
+| **Multi-level approval chain** | Analyst → Manager → Director → CRO sequential approval | Single HITL step | Configurable approval matrix per finding category/severity |
+| **Finding lifecycle state machine** | DRAFT → REVIEW → APPROVED → IN_REMEDIATION → VERIFIED → CLOSED | Single pass | `FindingState` enum with state transition validation |
+| **SLA tracking** | Per-finding SLA clock with auto-escalation on breach | Not implemented | `sla_deadline` field + escalation trigger on timeout |
+| **Remediation management** | Task assignment, due dates, evidence upload, status tracking | Generate recommendation only | Full remediation workflow with evidence attachment |
+| **Risk committee meeting pack** | Auto-generate meeting materials from current findings | Not implemented | PDF/PPTX generation with finding summaries, trends, and action items |
+
+### 7.5 Counterparty & Credit Risk
+
+| TODO | Description | Current State | Target |
+|---|---|---|---|
+| **Credit limit checking** | Real-time limit check against bank's credit system | Not implemented | Integration with credit risk system via API |
+| **Collateral management** | Margin call tracking and collateral position monitoring | Not implemented | Integration with collateral management system |
+| **ISDA/CSA netting** | Master agreement terms parsing for net exposure calculation | Not implemented | Netting agreement template parser |
+| **Wrong-way risk (WWR) flagging** | Detect correlation between exposure and credit quality deterioration | Not implemented | WWR detection heuristic + manual review flag |
+| **Credit migration trigger** | Auto-reassessment on counterparty rating change | Not implemented | Rating agency feed listener + re-trigger review |
+
+### 7.6 Stress Testing & Scenario Analysis
+
+| TODO | Description | Current State | Target |
+|---|---|---|---|
+| **Historical scenario library** | Pre-defined scenarios: 2008 GFC, COVID-19, Russia sanctions, oil price crash | Not implemented | Scenario definition format with market shock parameters |
+| **Reverse stress testing** | "What would break the fund?" — automated reverse stress engine | Not implemented | Binary search on risk factors to find breach points |
+| **Full Greeks calculation** | Delta, Gamma, Vega, Theta, Rho per position | Basic VaR only | Greeks engine integrated with position data |
+| **CCAR / DFAST compliance** | Fed-mandated stress test scenarios and reporting | Not implemented | CCAR scenario ingestion + reporting template |
+| **Climate risk (NGFS scenarios)** | Transition risk + physical risk modeling per NGFS | Not implemented | Climate scenario parameterization + impact assessment |
+
+### 7.7 Security & Access Control
+
+| TODO | Description | Current State | Target |
+|---|---|---|---|
+| **RBAC** | Role-based access: Analyst, Manager, CRO, Auditor, Regulator | No authentication | Role hierarchy with permission matrix |
+| **Azure AD / SSO** | Enterprise single sign-on via OAuth2 | Not implemented | `azure-identity` + OAuth2 middleware |
+| **Data segregation (Chinese Wall)** | Business unit + desk + fund hierarchy with cross-wall restrictions | `fund_id` isolation only | Hierarchical data access policy |
+| **Approval matrix** | Dollar limits, category limits, conflict-of-interest checks per approver | No restrictions | Configurable approval rules engine |
+| **Read-only auditor role** | Immutable read-only access with full audit trail for regulators | No auditor role | Read-only API key + audit-only UI |
+
+### 7.8 Reporting & Dashboards
+
+| TODO | Description | Current State | Target |
+|---|---|---|---|
+| **Board report generation** | Executive summary PDF with charts and key metrics | JSON output only | PDF generation (ReportLab / WeasyPrint) |
+| **Regulatory filing format** | XBRL, XML, or PDF per jurisdiction requirement | Not implemented | Jurisdiction-specific report templates |
+| **Power BI / Tableau integration** | Real-time risk dashboard for management | Not implemented | Semantic model layer + ODBC/JDBC connection |
+| **Trend analysis** | Risk metrics over time (VaR trend, breach frequency, remediation velocity) | Single snapshot | Time-series table + trend visualization API |
+| **Management action tracker** | Action item registry with owner, status, due date, evidence | Not implemented | Action item CRUD + status dashboard |
+
+### 7.9 Operational Resilience
+
+| TODO | Description | Current State | Target |
+|---|---|---|---|
+| **Multi-region DR** | Active-active deployment with RTO < 1 hour, RPO < 5 minutes | Single region | Azure Primary + Secondary region with Traffic Manager |
+| **Data retention** | 7-year regulatory data retention with point-in-time recovery | No backup strategy | Automated backup + retention policy + PITR |
+| **Rate limiting** | Per-client API throttling to prevent abuse | Not implemented | Token bucket or sliding window rate limiter |
+| **Circuit breaker** | Degraded mode when Bloomberg/PGVector/LLM API is unavailable | Not implemented | `circuitbreaker` library + fallback responses |
+| **LLM fallback** | Local model (Llama, Mistral) when OpenAI API is down | No fallback | `ChatOpenAI` → `ChatOllama` fallback chain |
+| **Graceful degradation** | Read-only mode when write path is unavailable | Not implemented | Health check → degrade endpoint → 200 with `degraded: true` |
+
+### 7.10 Implementation Order
+
+```mermaid
+gantt
+    title Production Roadmap
+    dateFormat  YYYY-MM-DD
+    
+    section Phase 1 (P0 — Foundation)
+    Immutable audit trail           :2026-07-01, 4w
+    Multi-jurisdiction rules        :2026-07-01, 3w
+    RBAC + Azure AD SSO             :2026-07-15, 4w
+    
+    section Phase 2 (P1 — Operational)
+    Finding lifecycle management    :2026-08-01, 4w
+    SLA tracking + escalation       :2026-08-01, 3w
+    Live market data feeds          :2026-08-15, 6w
+    
+    section Phase 3 (P2 — Completeness)
+    Board report generation         :2026-10-01, 3w
+    Stress testing scenarios        :2026-10-01, 6w
+    Power BI dashboard              :2026-10-15, 4w
+    
+    section Phase 4 (P3 — Advanced)
+    Climate risk (NGFS)             :2026-12-01, 8w
+    CCAR / DFAST                    :2026-12-01, 12w
+    Multi-region DR                 :2027-01-01, 8w
+```
