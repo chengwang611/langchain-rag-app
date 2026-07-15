@@ -1,5 +1,5 @@
 -- ============================================================================
--- Data Engineer Interview SQL Practice — 25 Queries
+-- Data Engineer Interview SQL Practice — 40 Queries
 -- ============================================================================
 -- Schema: employees, departments, sales, orders, customers, products
 -- Each query includes sample data, the query, and expected result.
@@ -122,7 +122,7 @@ INSERT INTO order_items VALUES
 (7, 3, 10, 49.99),
 (8, 1, 3, 19.99),
 (8, 2, 3, 24.99),
-(9, 6, 1, 59.98),  -- unit_price slightly off from products.price intentionally
+(9, 6, 1, 59.98),
 (10,4, 3, 79.99),
 (10,3, 1, 49.99),
 (11,1, 2, 19.99),
@@ -237,11 +237,7 @@ ORDER BY dept_id, rank_in_dept;
 -- ============================================================================
 -- QUERY 6: Window Function — RANK() vs DENSE_RANK()
 -- Task: Show the difference between RANK and DENSE_RANK when salaries tie.
---       (Add a tie to demonstrate.)
 -- ============================================================================
-
--- Temporarily give Frank the same salary as Karen to create a tie
--- (conceptual — not actually updating; just showing the query pattern)
 
 SELECT emp_name, dept_id, salary,
        RANK()       OVER (PARTITION BY dept_id ORDER BY salary DESC) AS rank_,
@@ -330,27 +326,27 @@ ORDER BY d.dept_name, e.salary DESC;
 -- ============================================================================
 
 SELECT e.emp_name AS employee,
-       m.emp_name AS manager,
+       COALESCE(m.emp_name, 'No Manager') AS manager,
        e.salary
 FROM employees e
 LEFT JOIN employees m ON e.manager_id = m.emp_id
-ORDER BY manager NULLS FIRST, e.salary DESC;
+ORDER BY manager, e.salary DESC;
 
 -- Expected result:
---  employee | manager  | salary
--- ----------+----------+--------
---  Alice    | NULL     | 120000
---  Charlie  | NULL     | 130000
---  Eve      | NULL     | 105000
---  Grace    | NULL     |  95000
---  Ivy      | NULL     | 135000
---  Hank     | Charlie  | 140000
---  Diana    | Charlie  | 125000
---  Karen    | Alice    | 118000
---  Frank    | Alice    | 115000
---  Bob      | Alice    | 110000
---  Jack     | Eve      | 100000
---  Leo      | Grace    |  92000
+--  employee | manager    | salary
+-- ----------+------------+--------
+--  Alice    | No Manager | 120000
+--  Charlie  | No Manager | 130000
+--  Eve      | No Manager | 105000
+--  Grace    | No Manager |  95000
+--  Ivy      | No Manager | 135000
+--  Karen    | Alice      | 118000
+--  Frank    | Alice      | 115000
+--  Bob      | Alice      | 110000
+--  Hank     | Charlie    | 140000
+--  Diana    | Charlie    | 125000
+--  Jack     | Eve        | 100000
+--  Leo      | Grace      |  92000
 
 
 -- ============================================================================
@@ -385,7 +381,6 @@ ORDER BY salary DESC;
 -- ============================================================================
 -- QUERY 12: Correlated Subquery
 -- Task: Find employees whose salary is above the average of their own department.
---       (Same result as Query 9, but using correlated subquery instead of CTE.)
 -- ============================================================================
 
 SELECT e.emp_name, e.salary, e.dept_id
@@ -500,8 +495,7 @@ ORDER BY c.cust_name;
 
 -- ============================================================================
 -- QUERY 17: String Functions
--- Task: Extract the domain-like part from customer names (text after first space)
---        and convert to uppercase.
+-- Task: Extract the domain-like part from customer names and convert to uppercase.
 -- ============================================================================
 
 SELECT cust_name,
@@ -515,8 +509,8 @@ ORDER BY name_length;
 -- -------------------+-------------------+------------
 --  Oscorp            | OSCORP            | 6
 --  LexCorp           | LEXCORP           | 7
---  Acme Corp         | CORP              | 9
 --  Initech           | INITECH           | 7
+--  Acme Corp         | CORP              | 9
 --  Globex Inc        | INC               | 10
 --  Umbrella Corp     | CORP              | 13
 --  Stark Industries  | INDUSTRIES        | 16
@@ -652,7 +646,6 @@ ORDER BY salary DESC;
 -- ============================================================================
 -- QUERY 23: Recursive CTE
 -- Task: Build the management chain for a specific employee (e.g., Bob, emp_id=2).
---       Show Bob → Alice (manager) → (no further manager).
 -- ============================================================================
 
 WITH RECURSIVE mgr_chain AS (
@@ -854,6 +847,358 @@ ORDER BY order_date;
 
 -- NOTE: EXPLAIN is informational only. EXPLAIN ANALYZE actually runs the query
 -- and reports real timing. Use EXPLAIN (FORMAT JSON) for machine-readable plans.
+
+
+-- ============================================================================
+-- QUERY 31: FULL OUTER JOIN
+-- Task: Show all employees and all departments, including unmatched rows on both sides.
+--       (Add a department with no employees and an employee with no department.)
+-- ============================================================================
+
+-- Add a department with no employees and an employee with NULL dept_id
+INSERT INTO departments VALUES (6, 'Legal');
+INSERT INTO employees VALUES (13, 'Mona', NULL, 88000, '2023-01-15', NULL);
+
+SELECT COALESCE(e.emp_name, '(no employees)') AS emp_name,
+       COALESCE(d.dept_name, '(no department)') AS dept_name
+FROM departments d
+FULL OUTER JOIN employees e ON d.dept_id = e.dept_id
+ORDER BY dept_name, emp_name;
+
+-- Expected result:
+--  emp_name      | dept_name
+-- ---------------+-------------
+--  Hank          | Data
+--  Charlie       | Data
+--  Diana         | Data
+--  Alice         | Engineering
+--  Bob           | Engineering
+--  Frank         | Engineering
+--  Karen         | Engineering
+--  Ivy           | Finance
+--  (no employees)| Legal
+--  Grace         | Marketing
+--  Leo           | Marketing
+--  Mona          | (no department)
+--  Eve           | Product
+--  Jack          | Product
+
+-- Cleanup the extra rows:
+-- DELETE FROM employees WHERE emp_id = 13;
+-- DELETE FROM departments WHERE dept_id = 6;
+
+
+-- ============================================================================
+-- QUERY 32: CROSS JOIN (Cartesian Product)
+-- Task: Generate all possible employee-product pairings for a small subset.
+--       Useful for scenario analysis or generating test data.
+-- ============================================================================
+
+SELECT e.emp_name, p.prod_name
+FROM (SELECT emp_name FROM employees WHERE emp_id <= 3) e
+CROSS JOIN (SELECT prod_name FROM products WHERE prod_id <= 2) p
+ORDER BY e.emp_name, p.prod_name;
+
+-- Expected result:
+--  emp_name | prod_name
+-- ----------+----------
+--  Alice    | Widget A
+--  Alice    | Widget B
+--  Bob      | Widget A
+--  Bob      | Widget B
+--  Charlie  | Widget A
+--  Charlie  | Widget B
+
+
+-- ============================================================================
+-- QUERY 33: FIRST_VALUE / LAST_VALUE / NTH_VALUE
+-- Task: For each department, show the first-hired and last-hired employee names
+--        alongside every employee row.
+-- ============================================================================
+
+SELECT dept_id, emp_name, hire_date,
+       FIRST_VALUE(emp_name) OVER (
+           PARTITION BY dept_id ORDER BY hire_date
+           ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING
+       ) AS first_hired,
+       LAST_VALUE(emp_name) OVER (
+           PARTITION BY dept_id ORDER BY hire_date
+           ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING
+       ) AS last_hired
+FROM employees
+WHERE dept_id IS NOT NULL
+ORDER BY dept_id, hire_date;
+
+-- Expected result for dept_id=1 (Engineering):
+--  dept_id | emp_name | hire_date  | first_hired | last_hired
+-- ---------+----------+------------+-------------+-----------
+--  1       | Alice    | 2019-03-15 | Alice       | Frank
+--  1       | Bob      | 2020-01-10 | Alice       | Frank
+--  1       | Karen    | 2020-04-18 | Alice       | Frank
+--  1       | Frank    | 2020-09-01 | Alice       | Frank
+
+
+-- ============================================================================
+-- QUERY 34: JSON Operations
+-- Task: Build a JSON object per employee and extract/query JSON fields.
+-- ============================================================================
+
+-- Build JSON per employee
+SELECT emp_name,
+       JSON_BUILD_OBJECT(
+           'name', emp_name,
+           'dept_id', dept_id,
+           'salary', salary,
+           'hire_date', hire_date
+       ) AS employee_json
+FROM employees
+WHERE emp_id <= 3;
+
+-- Expected result:
+--  emp_name | employee_json
+-- ----------+----------------------------------------------------------
+--  Alice    | {"name":"Alice","dept_id":1,"salary":120000,"hire_date":"2019-03-15"}
+--  Bob      | {"name":"Bob","dept_id":1,"salary":110000,"hire_date":"2020-01-10"}
+--  Charlie  | {"name":"Charlie","dept_id":2,"salary":130000,"hire_date":"2018-07-22"}
+
+-- Extract from JSON array (conceptual):
+-- SELECT JSON_ARRAY_ELEMENTS('[1,2,3]'::json);
+
+-- NOTE: JSON_BUILD_OBJECT is PostgreSQL. For MySQL use JSON_OBJECT(),
+-- for SQL Server use FOR JSON PATH.
+
+
+-- ============================================================================
+-- QUERY 35: ROLLUP / CUBE / GROUPING SETS
+-- Task: Generate subtotals and grand total of salaries by department.
+-- ============================================================================
+
+SELECT COALESCE(d.dept_name, 'ALL DEPTS') AS dept_name,
+       COUNT(*) AS emp_count,
+       SUM(e.salary) AS total_salary,
+       ROUND(AVG(e.salary), 2) AS avg_salary
+FROM employees e
+JOIN departments d ON e.dept_id = d.dept_id
+GROUP BY ROLLUP(d.dept_name)
+ORDER BY d.dept_name NULLS LAST;
+
+-- Expected result:
+--  dept_name   | emp_count | total_salary | avg_salary
+-- -------------+-----------+--------------+-----------
+--  Data        | 3         | 395000       | 131666.67
+--  Engineering | 4         | 463000       | 115750.00
+--  Finance     | 1         | 135000       | 135000.00
+--  Marketing   | 2         | 187000       |  93500.00
+--  Product     | 2         | 205000       | 102500.00
+--  ALL DEPTS   | 12        | 1385000      | 115416.67
+
+-- NOTE: ROLLUP is supported in PostgreSQL, MySQL 8+, SQL Server, Oracle.
+-- CUBE generates all possible combinations; GROUPING SETS for specific combos.
+
+
+-- ============================================================================
+-- QUERY 36: LATERAL JOIN (CROSS APPLY equivalent)
+-- Task: For each department, show the top 2 highest-paid employees using LATERAL.
+-- ============================================================================
+
+SELECT d.dept_name, top.emp_name, top.salary
+FROM departments d
+CROSS JOIN LATERAL (
+    SELECT emp_name, salary
+    FROM employees e
+    WHERE e.dept_id = d.dept_id
+    ORDER BY salary DESC
+    LIMIT 2
+) top
+ORDER BY d.dept_name, top.salary DESC;
+
+-- Expected result:
+--  dept_name   | emp_name | salary
+-- -------------+----------+--------
+--  Data        | Hank     | 140000
+--  Data        | Charlie  | 130000
+--  Engineering | Alice    | 120000
+--  Engineering | Karen    | 118000
+--  Finance     | Ivy      | 135000
+--  Marketing   | Grace    |  95000
+--  Marketing   | Leo      |  92000
+--  Product     | Eve      | 105000
+--  Product     | Jack     | 100000
+
+-- NOTE: LATERAL is PostgreSQL. SQL Server uses CROSS APPLY / OUTER APPLY.
+-- MySQL 8+ supports LATERAL. Oracle uses CROSS APPLY.
+
+
+-- ============================================================================
+-- QUERY 37: MERGE / UPSERT
+-- Task: Synchronize a staging table into the target table (conceptual).
+--       Insert new rows, update existing ones based on primary key.
+-- ============================================================================
+
+-- Create a staging table with one new employee and one updated salary
+CREATE TEMP TABLE employees_staging AS
+SELECT * FROM employees WHERE emp_id <= 2;
+UPDATE employees_staging SET salary = 125000 WHERE emp_id = 1;  -- Alice gets a raise
+INSERT INTO employees_staging VALUES (14, 'Nina', 2, 115000, '2023-03-01', 3);  -- New hire
+
+-- MERGE statement (PostgreSQL 15+):
+-- MERGE INTO employees e
+-- USING employees_staging s ON e.emp_id = s.emp_id
+-- WHEN MATCHED THEN
+--     UPDATE SET emp_name = s.emp_name, dept_id = s.dept_id,
+--                salary = s.salary, hire_date = s.hire_date, manager_id = s.manager_id
+-- WHEN NOT MATCHED THEN
+--     INSERT (emp_id, emp_name, dept_id, salary, hire_date, manager_id)
+--     VALUES (s.emp_id, s.emp_name, s.dept_id, s.salary, s.hire_date, s.manager_id);
+
+-- Alternative UPSERT using ON CONFLICT (PostgreSQL):
+-- INSERT INTO employees (emp_id, emp_name, dept_id, salary, hire_date, manager_id)
+-- SELECT emp_id, emp_name, dept_id, salary, hire_date, manager_id FROM employees_staging
+-- ON CONFLICT (emp_id) DO UPDATE SET
+--     emp_name = EXCLUDED.emp_name,
+--     dept_id = EXCLUDED.dept_id,
+--     salary = EXCLUDED.salary,
+--     hire_date = EXCLUDED.hire_date,
+--     manager_id = EXCLUDED.manager_id;
+
+-- Preview what would change:
+SELECT 'UPDATE' AS action, e.emp_id, e.emp_name, e.salary AS old_salary, s.salary AS new_salary
+FROM employees e JOIN employees_staging s ON e.emp_id = s.emp_id
+WHERE e.salary <> s.salary
+UNION ALL
+SELECT 'INSERT' AS action, s.emp_id, s.emp_name, NULL, s.salary
+FROM employees_staging s
+WHERE NOT EXISTS (SELECT 1 FROM employees e WHERE e.emp_id = s.emp_id);
+
+-- Expected preview:
+--  action | emp_id | emp_name | old_salary | new_salary
+-- --------+--------+----------+------------+-----------
+--  UPDATE | 1      | Alice    | 120000     | 125000
+--  INSERT | 14     | Nina     | NULL       | 115000
+
+-- Cleanup:
+-- DROP TABLE IF EXISTS employees_staging;
+
+-- NOTE: MERGE is PostgreSQL 15+, SQL Server, Oracle. MySQL uses
+-- INSERT ... ON DUPLICATE KEY UPDATE or REPLACE INTO.
+
+
+-- ============================================================================
+-- QUERY 38: Temporal / Date Range Queries
+-- Task: Find orders placed in Q1 2022 (January through March).
+--       Also show how to generate a date series.
+-- ============================================================================
+
+-- Orders in Q1 2022
+SELECT order_id, cust_id, order_date, total_amount
+FROM orders
+WHERE order_date BETWEEN '2022-01-01' AND '2022-03-31'
+ORDER BY order_date;
+
+-- Expected result:
+--  order_id | cust_id | order_date | total_amount
+-- ----------+---------+------------+-------------
+--  1        | 1       | 2022-01-10 | 149.95
+--  3        | 2       | 2022-01-20 | 99.98
+--  2        | 1       | 2022-02-15 | 249.90
+--  4        | 3       | 2022-03-05 | 399.96
+
+-- Generate a date series (PostgreSQL):
+-- SELECT generate_series('2022-01-01'::date, '2022-01-07'::date, '1 day'::interval) AS date;
+
+-- Count orders by month:
+SELECT TO_CHAR(order_date, 'YYYY-MM') AS month,
+       COUNT(*) AS order_count,
+       ROUND(SUM(total_amount), 2) AS monthly_revenue
+FROM orders
+GROUP BY TO_CHAR(order_date, 'YYYY-MM')
+ORDER BY month;
+
+-- Expected result:
+--  month   | order_count | monthly_revenue
+-- ---------+-------------+----------------
+--  2022-01 | 2           | 249.93
+--  2022-02 | 1           | 249.90
+--  2022-03 | 1           | 399.96
+--  2022-04 | 2           | 279.98
+--  2022-05 | 1           | 499.95
+--  2022-06 | 1           | 149.97
+--  2022-07 | 1           | 59.98
+--  2022-08 | 1           | 299.97
+--  2022-09 | 1           | 124.95
+--  2022-10 | 1           | 399.96
+
+
+-- ============================================================================
+-- QUERY 39: Views and Materialized Views
+-- Task: Create a view for a commonly-used query, then a materialized view
+--        for pre-computed aggregations.
+-- ============================================================================
+
+-- Regular view (computed at query time)
+-- CREATE VIEW vw_employee_summary AS
+-- SELECT d.dept_name,
+--        COUNT(e.emp_id) AS emp_count,
+--        ROUND(AVG(e.salary), 2) AS avg_salary,
+--        MAX(e.salary) AS max_salary
+-- FROM departments d
+-- LEFT JOIN employees e ON d.dept_id = e.dept_id
+-- GROUP BY d.dept_name;
+
+-- Query the view:
+-- SELECT * FROM vw_employee_summary ORDER BY avg_salary DESC;
+
+-- Materialized view (pre-computed, needs refresh)
+-- CREATE MATERIALIZED VIEW mv_monthly_sales AS
+-- SELECT TO_CHAR(order_date, 'YYYY-MM') AS month,
+--        COUNT(*) AS order_count,
+--        ROUND(SUM(total_amount), 2) AS total_revenue
+-- FROM orders
+-- GROUP BY TO_CHAR(order_date, 'YYYY-MM');
+
+-- Refresh when source data changes:
+-- REFRESH MATERIALIZED VIEW mv_monthly_sales;
+
+-- Query the materialized view:
+-- SELECT * FROM mv_monthly_sales ORDER BY month;
+
+-- NOTE: Materialized views are supported in PostgreSQL, Oracle, SQL Server
+-- (as indexed views). MySQL does not support materialized views natively.
+
+
+-- ============================================================================
+-- QUERY 40: Transaction Control and ACID
+-- Task: Demonstrate a transaction that transfers an employee between departments
+--        with proper commit/rollback semantics.
+-- ============================================================================
+
+-- Start a transaction
+-- BEGIN;
+
+-- Move Bob from Engineering (dept_id=1) to Data (dept_id=2)
+-- UPDATE employees SET dept_id = 2 WHERE emp_id = 2;
+
+-- Verify the change within the transaction
+-- SELECT emp_name, dept_id FROM employees WHERE emp_id = 2;
+-- Expected: Bob | 2
+
+-- If something goes wrong, rollback:
+-- ROLLBACK;
+-- Now Bob is back in Engineering.
+
+-- If everything is correct, commit:
+-- COMMIT;
+
+-- Conceptual: transfer with audit logging
+-- BEGIN;
+-- UPDATE employees SET dept_id = 2 WHERE emp_id = 2;
+-- INSERT INTO dept_transfer_log (emp_id, from_dept, to_dept, transfer_date)
+-- VALUES (2, 1, 2, CURRENT_DATE);
+-- COMMIT;
+
+-- NOTE: Transaction semantics are standard across all RDBMS.
+-- PostgreSQL, MySQL (InnoDB), SQL Server, Oracle all support BEGIN/COMMIT/ROLLBACK.
+-- SAVEPOINT allows partial rollback within a transaction.
 
 
 -- ============================================================================
