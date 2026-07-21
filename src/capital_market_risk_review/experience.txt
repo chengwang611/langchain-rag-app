@@ -1,35 +1,47 @@
-**Capital Market Risk Review Pipeline — XXX Capital Markets** | Python, LangGraph, LangChain, OpenAI GPT-4o-mini
+**Capital Market Risk Review AI Agent Platform — RBC Capital Markets** | Python, LangGraph, LangChain, OpenAI GPT-4o-mini, FastAPI, PySpark, Docker, PostgreSQL/pgvector
 
-- Architected a **two-pipeline multi-agent LangGraph system** for XXX Capital Markets supporting many funds with risk report documents ingested daily or hourly: (1) a **batch ingestion pipeline** (`build_ingestion_graph`) that splits, tags, embeds and persists fund documents; (2) an **on-demand review pipeline** (`build_review_graph`) that retrieves by `fund_id`, runs three AI agents, and pauses for HITL approval — decoupling embedding cost from retrieval and ensuring each fund's documents are fully isolated
-- Implemented **fund-scoped document ingestion** (`ingest_node`, `embed_and_persist_node`) that tags every chunk with `fund_id` + `report_date` metadata and incrementally appends to a persistent vector store (demo: module-level dict with documented PGVector swap point), supporting multiple hourly or daily ingestion runs per fund without re-embedding historical documents
-- Implemented **fund-filtered semantic retrieval** (`retrieve_node`) that loads only the queried `fund_id`'s persisted chunks — Fund A's documents never pollute Fund B's retrieval — with documented upgrade path to `PGVector.similarity_search(query, k=8, filter={"fund_id": fund_id})`
-- Implemented a **Regulatory Compliance Agent** (`compliance_agent.py`) with three LangChain tools (`check_basel_threshold`, `get_xxx_risk_appetite`, `generate_remediation_recommendation`) that cross-reference extracted risk findings against Basel III/IV thresholds (BCBS 352 / 325 / 238, SR 11-7) and XXX internal risk appetite limits, auto-generating remediation actions with owner, SLA, and regulatory reference
-- Built a **Market Sensitivity Analysis Agent** (`market_agent.py`) with three quantitative tools (`calculate_var_delta`, `estimate_cva_exposure`, `calculate_rwa_impact`) that enrich each finding with 99%/10-day VaR + Basel III IMA capital charges, CVA via EPE × PD × LGD (BCBS 325), and RWA under the Standardised Approach (BCBS 424 / CRR2)
-- Implemented a **Risk Escalation Agent** (`escalation_agent.py`) with four notification tools (`classify_findings_by_severity`, `send_slack_notification`, `send_email_notification`, `create_servicenow_ticket`) that classify findings by severity and autonomously route critical findings to senior risk officers via Slack (`#xxx-cm-critical-risk-alerts`), email to designated officers, and ServiceNow P1/P2 incident tickets
-- Implemented a **Human-in-the-Loop (HITL) interrupt pattern** (`review.py`) using LangGraph checkpointing (`thread_id`), enabling XXX risk analysts to approve, edit, or reject AI-generated findings — enriched with compliance breach flags, VaR/CVA/RWA metrics, and escalation log — before finalization
+- Architected a **two-pipeline multi-agent LangGraph system** for RBC Capital Markets supporting multi-fund risk report ingestion and on-demand AI-driven review: (1) a **batch ingestion pipeline** (`embedding_process`) that performs semantic chunking, embedding, and persistence of fund documents via PySpark; (2) an **on-demand review pipeline** (`review_process`) that retrieves fund-scoped context and orchestrates four specialized AI agents — decoupling expensive embedding cost from retrieval and ensuring strict fund-level data isolation
+
+- Designed and implemented a **semantic recursive chunking strategy** using `RecursiveCharacterTextSplitter` with approximate token budgeting, section-title inference, and configurable guardrails — replacing naive character-window splitting to preserve risk narrative boundaries (headings, paragraphs, clauses) and improve retrieval attribution for capital-market documents
+
+- Built a **vector backend abstraction layer** (`VectorStoreBackend` protocol) supporting three interchangeable backends: `InMemoryFundVectorStore` (local dev), `FileFundVectorStore` (JSONL persistence), and `PGVectorFundStore` (PostgreSQL/pgvector production) — with automatic write-strategy selection (driver-local vs. distributed executor writes) based on backend capability
+
+- Implemented a **Regulatory Compliance Agent** (`compliance_agent.py`) with three LangChain tools (`check_basel_threshold`, `get_xxx_risk_appetite`, `generate_remediation_recommendation`) that cross-reference extracted risk findings against Basel III/IV thresholds (BCBS 352/325/238, SR 11-7) and internal risk appetite limits, auto-generating remediation actions with owner, SLA, and regulatory reference
+
+- Built a **Market Sensitivity Analysis Agent** (`market_agent.py`) with three quantitative tools (`calculate_var_delta`, `estimate_cva_exposure`, `calculate_rwa_impact`) that enrich each finding with 99%/10-day VaR + Basel III IMA capital charges, CVA via EPE × PD × LGD (BCBS 325), and RWA under the Standardised Approach (BCBS 424/CRR2)
+
+- Implemented a **Risk Escalation Agent** (`escalation_agent.py`) with four notification tools (`classify_findings_by_severity`, `send_slack_notification`, `send_email_notification`, `create_servicenow_ticket`) that classify findings by severity and autonomously route critical findings to senior risk officers via Slack, email, and ServiceNow P1/P2 incident tickets
+
+- Implemented a **Human-in-the-Loop (HITL) interrupt pattern** using LangGraph checkpointing (`thread_id`), enabling risk analysts to approve, edit, or reject AI-generated findings — enriched with compliance breach flags, VaR/CVA/RWA metrics, and escalation log — before finalization
+
 - Designed a typed **shared state contract** (`ReviewState` TypedDict, 17 fields in `models.py`) covering both pipelines, enforcing clean interfaces between ingestion, retrieval, LLM analysis, agent enrichment, HITL, and finalization stages
-- Deployed the full pipeline as a **production REST API** (`api.py`, FastAPI) containerised via a multi-stage `Dockerfile` and deployed to **Azure Container Apps** — exposing five endpoints (`POST /ingest/{fund_id}`, `POST /review/start`, `POST /review/{thread_id}/resume`, `GET /review/{thread_id}/status`, `GET /health`) with Pydantic request validation, Azure Key Vault secret management, and automated CI/CD via GitHub Actions (build → push to Azure Container Registry → deploy on every push to `master`)
+
+- Deployed the review pipeline as a **production REST API** (`api.py`, FastAPI) with four endpoints (`POST /review/start`, `POST /review/{thread_id}/resume`, `GET /review/{thread_id}/status`, `GET /health`) with Pydantic request validation and resumable review threads
+
+- Containerized the system into **two separate Docker images** (`review-api` for continuous serving, `embedding-job` for scheduled batch processing) with documented deployment paths for OpenShift Spark Operator + Airflow DAG and Azure Databricks Workflows
+
+- Authored a comprehensive **production roadmap** covering immutable audit trails, multi-jurisdiction regulatory rules (OSFI/PRA/ECB), RBAC + Azure AD SSO, live Bloomberg market data feeds, finding lifecycle management, stress testing scenarios, and multi-region DR
 
 
 ### Traceability — Resume Bullet → Code
 
 | Resume Bullet | File | Key Symbol |
 |---|---|---|
-| Two-pipeline architecture | `graph.py` | `build_ingestion_graph()`, `build_review_graph()` |
-| Fund-scoped ingestion | `ingest.py` | `ingest_node()`, `embed_and_persist_node()`, `_FUND_DOCUMENT_STORE` |
-| Fund-filtered retrieval | `ingest.py` | `retrieve_node()` — `_FUND_DOCUMENT_STORE.get(fund_id)` |
-| fund_id metadata tagging | `ingest.py` | `Document(metadata={"fund_id": fund_id, "report_date": ...})` |
-| Incremental persistence | `ingest.py` | `existing + chunks` append pattern in `embed_and_persist_node` |
-| LLM summarisation + structured JSON findings | `analyze.py` | `analyze_node()` |
-| Regulatory Compliance Agent | `compliance_agent.py` | `compliance_agent_node()`, 3 `@tool` functions |
-| Market Sensitivity Analysis Agent | `market_agent.py` | `market_sensitivity_agent_node()`, 3 `@tool` functions |
-| Risk Escalation Agent | `escalation_agent.py` | `escalation_agent_node()`, 4 `@tool` functions |
-| Basel III/IV threshold checks | `compliance_agent.py` | `BASEL_THRESHOLDS` dict + `check_basel_threshold` tool |
-| VaR delta / CVA / RWA calculations | `market_agent.py` | `calculate_var_delta`, `estimate_cva_exposure`, `calculate_rwa_impact` |
-| Slack / email / ServiceNow routing | `escalation_agent.py` | `send_slack_notification`, `send_email_notification`, `create_servicenow_ticket` |
-| HITL interrupt + thread_id | `review.py` | `human_review_node()`, `MemorySaver` checkpointing |
-| Typed shared state (17 fields) | `models.py` | `ReviewState` TypedDict incl. `fund_id`, `report_date`, `source_files` |
-| Multi-fund demo | `main.py` | `FUND_REPORTS` dict, `run_ingestion_pipeline()`, 3 funds × 2 dates |
-| REST API service layer | `api.py` | 5 FastAPI endpoints, Pydantic models, `_empty_state()` helper |
-| Docker containerisation | `Dockerfile` | Multi-stage build, non-root user, HEALTHCHECK on `/health` |
-| Azure Container Apps CI/CD | `.github/workflows/deploy.yml` | Build → ACR push → Container Apps deploy on master push |
+| Two-pipeline architecture | `review_process/graph.py`, `embedding_process/spark_pipeline.py` | `build_review_graph()`, `SparkEmbeddingPipeline` |
+| Semantic recursive chunking | `embedding_process/spark_pipeline.py` | `_chunk_text()`, `RecursiveCharacterTextSplitter`, `_estimate_tokens()` |
+| Vector backend abstraction | `embedding_process/vector_backend.py` | `VectorStoreBackend` protocol, `InMemoryFundVectorStore`, `FileFundVectorStore`, `PGVectorFundStore` |
+| Fund-scoped ingestion | `embedding_process/spark_pipeline.py` | `build_chunks_df()`, `_to_documents()` with `fund_id` metadata |
+| Fund-filtered retrieval | `embedding_process/vector_backend.py` | `similarity_search(fund_id=..., query=..., k=8)` |
+| PySpark batch pipeline | `embedding_process/main.py`, `embedding_process/spark_pipeline.py` | `SparkEmbeddingPipeline.run()`, `_write_via_driver()`, `_write_via_partitions()` |
+| LLM summarisation + structured JSON findings | `review_process/analyze.py` | `analyze_node()` |
+| Regulatory Compliance Agent | `review_process/compliance_agent.py` | `compliance_agent_node()`, 3 `@tool` functions, `BASEL_THRESHOLDS` |
+| Market Sensitivity Analysis Agent | `review_process/market_agent.py` | `market_sensitivity_agent_node()`, 3 `@tool` functions |
+| Risk Escalation Agent | `review_process/escalation_agent.py` | `escalation_agent_node()`, 4 `@tool` functions |
+| Basel III/IV threshold checks | `review_process/compliance_agent.py` | `BASEL_THRESHOLDS` dict + `check_basel_threshold` tool |
+| VaR delta / CVA / RWA calculations | `review_process/market_agent.py` | `calculate_var_delta`, `estimate_cva_exposure`, `calculate_rwa_impact` |
+| Slack / email / ServiceNow routing | `review_process/escalation_agent.py` | `send_slack_notification`, `send_email_notification`, `create_servicenow_ticket` |
+| HITL interrupt + thread_id | `review_process/hitl.py` | `human_review_node()`, `MemorySaver` checkpointing |
+| Typed shared state (17 fields) | `review_process/models.py` | `ReviewState` TypedDict |
+| REST API service layer | `review_process/api.py` | 4 FastAPI endpoints, Pydantic models |
+| Docker containerisation | `docker/Dockerfile.review`, `docker/Dockerfile.embedding` | Two separate images for API and batch |
+| Production roadmap | `docs/DESIGN.md` | §7 Production Roadmap, priority matrix, implementation order |

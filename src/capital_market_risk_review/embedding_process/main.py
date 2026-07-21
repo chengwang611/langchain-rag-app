@@ -122,7 +122,7 @@ def _load_source_df(spark: SparkSession, input_jsonl: str | None, process_date: 
                 }
             )
 
-    # Avoid createDataFrame(sample) to keep the demo path independent from pyarrow.
+    # Avoid createDataFrame(sample-questions) to keep the demo path independent from pyarrow.
     json_rows = [json.dumps(x) for x in sample]
     rdd = spark.sparkContext.parallelize(json_rows)
     return spark.read.json(rdd)

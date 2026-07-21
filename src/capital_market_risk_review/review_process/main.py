@@ -3,7 +3,7 @@
 Usage:
     python -m capital_market_risk_review.review_process.main
 
-This demo bootstraps sample chunks into the file-backed store used by
+This demo bootstraps sample-questions chunks into the file-backed store used by
 `review_process.retrieval` so the review graph can run end-to-end.
 """
 
@@ -64,7 +64,7 @@ QUERY = "Summarize material market risk issues, control gaps, and limit breaches
 
 
 def _bootstrap_demo_store(process_date: str) -> None:
-    """Persist sample documents into file backend used by retrieve_node."""
+    """Persist sample-questions documents into file backend used by retrieve_node."""
     store_path = os.getenv("REVIEW_FILE_BACKEND_PATH", ".local_data/fund_chunks.jsonl")
     os.environ.setdefault("REVIEW_VECTOR_BACKEND", "file")
     Path(store_path).parent.mkdir(parents=True, exist_ok=True)
@@ -96,7 +96,7 @@ def main() -> int:
     process_date = "2026-06-05"
 
     print("=" * 60)
-    print("BOOTSTRAP: sample ingestion into file backend")
+    print("BOOTSTRAP: sample-questions ingestion into file backend")
     print("=" * 60)
     _bootstrap_demo_store(process_date=process_date)
 

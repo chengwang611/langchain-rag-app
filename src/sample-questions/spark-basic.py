@@ -36,7 +36,7 @@ def build_spark(app_name: str = "pyspark-interview-demo") -> SparkSession:
         .master("local[*]")
         .config("spark.sql.shuffle.partitions", "4")
         .config("spark.sql.adaptive.enabled", "true")
-        .config("spark.driver.bindAddress", "127.0.0.1")
+        # .config("spark.driver.bindAddress", "127.0.0.1")
         .getOrCreate()
     )
 
