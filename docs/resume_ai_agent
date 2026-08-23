@@ -1,0 +1,51 @@
+Project: AI Agent Platform for Capital Markets Risk Review
+
+Built a production-oriented, two-pipeline AI agent system for capital markets risk governance: (1) scheduled document ingestion and embedding for multi-fund risk reports, and (2) on-demand review API that generates risk summaries, compliance checks, market sensitivity analysis, escalation actions, and human-in-the-loop approval workflows. Designed fund-level data isolation (`fund_id`-scoped retrieval), resumable review threads, and clear separation between batch data processing and continuous API serving.
+
+Scope and impact:
+- Automated analysis of daily/hourly risk documents across multiple funds.
+- Added specialized agents for compliance, market risk sensitivity (VaR/CVA/RWA), and escalation routing.
+- Implemented review pause/resume with human decision checkpoints for controlled publishing.
+- Structured deployment into two container workloads: long-running review API and scheduler-triggered embedding batch job.
+
+Tech stack:
+- Python, FastAPI, Pydantic
+- LangGraph, LangChain, OpenAI APIs
+- PySpark (batch ingestion/embedding pipeline)
+- Vector backends: file-backed store (phase 1), PGVector-ready abstraction
+- Docker (separate images for API and embedding job)
+- Kubernetes/OpenShift/Azure deployment patterns
+- Airflow/Databricks scheduler integration patterns
+
+Project: Data Engineer Platform for Bank Data Pipelines
+
+Built and operated multi-cloud data engineering pipelines across AWS and Azure for bank workloads, covering event-driven ETL, governed analytics, and MLOps automation. Implemented reliable ingestion and transformation workflows with exactly-once controls, CI/CD-driven deployment, and secure data access patterns for downstream analytics.
+
+Scope and impact:
+- Built event-driven ETL pipelines on AWS (S3 → SQS → Lambda → EMR/Glue) with exactly-once processing using S3 conditional put locks (`IfNoneMatch='*'`) and dedup markers.
+- Implemented folder-level sentinel processing (`_COMPLETE`) to batch-process all files in a drop, improving ingestion reliability for upstream handoffs.
+- Designed a medallion pipeline on Azure Databricks (Bronze → Silver → Gold) ingesting Salesforce Bulk API and PMM REST data into Delta tables managed by Unity Catalog.
+- Added automated model retraining on SageMaker (S3 event trigger → pipeline execution) with preprocess/train/evaluate/register steps and metric-gated model registration.
+- Delivered deployment automation with CloudFormation/CDK, Databricks Asset Bundles, and GitHub Actions OIDC-based CI/CD across environments.
+
+Tech stack:
+- Python, PySpark, SQL
+- AWS: S3, SQS, Lambda, EMR, Glue, Lake Formation, Athena, SageMaker, CloudFormation, CDK
+- Azure: Databricks, Delta Lake, Unity Catalog, ADLS Gen2
+- Orchestration & DevOps: Airflow, GitHub Actions, Databricks Asset Bundles
+
+Project: Azure Databricks Ingestion & ETL Pipeline (Bank)
+
+Implemented a production-grade Azure Databricks ingestion and ETL platform using medallion architecture (Bronze → Silver → Gold), integrating Salesforce Bulk API 2.0 and PMM REST data sources into governed Delta Lake datasets.
+
+Scope and impact:
+- Built ingestion connectors with OAuth2/API-key auth, pagination handling, and reusable orchestrators for Salesforce and PMM pipelines.
+- Designed raw-to-curated processing flow: raw Parquet landing, schema/data-quality validation, transformation, and Silver Delta table publishing.
+- Enabled secure enterprise governance with Unity Catalog + Databricks Secrets and environment-aware configuration management.
+- Implemented CI/CD with Databricks Asset Bundles (DAB) and GitHub Actions for dev/staging/prod deployments.
+- Supported both `notebook_task` and `python_wheel_task` execution modes to balance interactive debugging and production-grade packaging.
+
+Tech stack:
+- Azure Databricks, Delta Lake, Unity Catalog, ADLS Gen2
+- Python, PySpark, REST APIs (Salesforce Bulk API 2.0, PMM API)
+- Databricks Asset Bundles, GitHub Actions, Databricks CLI
